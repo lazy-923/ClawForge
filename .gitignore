@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.next/
+node_modules/
+.env
+dist/
+coverage/
+
