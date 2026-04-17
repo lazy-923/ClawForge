@@ -13,5 +13,6 @@ async def health_check() -> dict[str, str]:
         "name": settings.app_name,
         "environment": settings.app_env,
         "status": "ok",
+        "api_prefix": settings.api_prefix,
     }
 

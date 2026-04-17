@@ -17,7 +17,15 @@ class Settings:
     app_host: str = _read_env("APP_HOST", "0.0.0.0")
     app_port: int = int(_read_env("APP_PORT", "8002"))
     api_prefix: str = _read_env("API_PREFIX", "/api")
-    project_root: Path = Path(_read_env("PROJECT_ROOT", ".")).resolve()
+    backend_dir: Path = Path(__file__).resolve().parent
+    project_root: Path = backend_dir.parent
+    skills_dir: Path = backend_dir / "skills"
+    sessions_dir: Path = backend_dir / "sessions"
+    memory_dir: Path = backend_dir / "memory"
+    workspace_dir: Path = backend_dir / "workspace"
+    storage_dir: Path = backend_dir / "storage"
+    knowledge_dir: Path = backend_dir / "knowledge"
+    snapshot_path: Path = backend_dir / "SKILLS_SNAPSHOT.md"
 
 
 settings = Settings()
