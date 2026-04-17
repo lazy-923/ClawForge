@@ -26,7 +26,7 @@ class Settings:
     storage_dir: Path = backend_dir / "storage"
     knowledge_dir: Path = backend_dir / "knowledge"
     snapshot_path: Path = backend_dir / "SKILLS_SNAPSHOT.md"
+    gateway_hits_path: Path = storage_dir / "gateway_hits.json"
 
 
 settings = Settings()
-

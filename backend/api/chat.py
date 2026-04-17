@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from backend.gateway.gateway_manager import gateway_manager
 from backend.graph.agent import agent_manager
 from backend.graph.session_manager import session_manager
 
@@ -27,6 +28,7 @@ def _sse_message(event: str, data: dict[str, object]) -> str:
 async def chat(request: ChatRequest):
     session_id, created = session_manager.ensure_session(request.session_id)
     history = session_manager.load_session_for_agent(session_id)
+    skill_hit = gateway_manager.activate_skills(session_id, request.message, history)
     title = (
         session_manager.generate_title(request.message)
         if created and not history
@@ -34,7 +36,12 @@ async def chat(request: ChatRequest):
     )
 
     if not request.stream:
-        content = await agent_manager.collect_response(request.message, history)
+        content = await agent_manager.collect_response(
+            request.message,
+            history,
+            activated_skills=skill_hit["selected_skills"],
+            activated_skill_context=skill_hit["context"],
+        )
         session_manager.save_message(session_id, "user", request.message)
         session_manager.save_message(session_id, "assistant", content)
         if title:
@@ -44,13 +51,26 @@ async def chat(request: ChatRequest):
                 "session_id": session_id,
                 "content": content,
                 "title": title,
+                "skill_hit": skill_hit,
             }
         )
 
     async def event_generator() -> AsyncIterator[str]:
         content_parts: list[str] = []
+        yield _sse_message(
+            "skill_hit",
+            {
+                "query": skill_hit["query"],
+                "selected_skills": skill_hit["selected_skills"],
+            },
+        )
 
-        async for event in agent_manager.astream(request.message, history):
+        async for event in agent_manager.astream(
+            request.message,
+            history,
+            activated_skills=skill_hit["selected_skills"],
+            activated_skill_context=skill_hit["context"],
+        ):
             if event["type"] == "token":
                 content_parts.append(str(event["content"]))
                 yield _sse_message("token", {"content": event["content"]})
@@ -71,8 +91,8 @@ async def chat(request: ChatRequest):
                     {
                         "session_id": session_id,
                         "content": final_content,
+                        "skill_hit": skill_hit,
                     },
                 )
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
-

@@ -22,15 +22,16 @@ class PromptBuilder:
         text = path.read_text(encoding="utf-8").strip()
         return text[:20_000]
 
-    def build(self) -> str:
+    def build(self, activated_skill_context: str = "") -> str:
         sections: list[str] = []
         for label, path in self.components:
             content = self._read_text(path)
             if not content:
                 continue
             sections.append(f"<!-- {label} -->\n{content}")
+        if activated_skill_context:
+            sections.append(f"<!-- Activated Skills -->\n{activated_skill_context}")
         return "\n\n".join(sections)
 
 
 prompt_builder = PromptBuilder()
-
