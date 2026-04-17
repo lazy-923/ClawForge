@@ -36,6 +36,7 @@ class PromotionService:
         )
         scan_skills()
         registry_service.refresh_skills_index()
+        registry_service.increment_usage([skill_name], "adopted_count")
         registry_service.append_lineage(
             {
                 "skill": skill_name,
@@ -71,6 +72,7 @@ class PromotionService:
         )
         scan_skills()
         registry_service.refresh_skills_index()
+        registry_service.increment_usage([str(result["target_skill"])], "adopted_count")
         registry_service.append_merge_history(
             {
                 "from_draft": draft_id,

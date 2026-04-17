@@ -33,6 +33,7 @@ class Settings:
     skills_index_path: Path = skill_registry_dir / "skills_index.json"
     merge_history_path: Path = skill_registry_dir / "merge_history.json"
     lineage_path: Path = skill_registry_dir / "lineage.json"
+    usage_stats_path: Path = skill_registry_dir / "usage_stats.json"
 
 
 settings = Settings()

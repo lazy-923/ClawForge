@@ -10,6 +10,7 @@ from backend.api.files import router as files_router
 from backend.api.gateway import router as gateway_router
 from backend.api.health import router as health_router
 from backend.api.sessions import router as sessions_router
+from backend.api.skills import router as skills_router
 from backend.config import settings
 from backend.tools.skills_scanner import scan_skills
 
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
     app.include_router(files_router, prefix=settings.api_prefix)
     app.include_router(gateway_router, prefix=settings.api_prefix)
     app.include_router(drafts_router, prefix=settings.api_prefix)
+    app.include_router(skills_router, prefix=settings.api_prefix)
     return app
 
 

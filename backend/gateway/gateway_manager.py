@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from backend.config import settings
+from backend.evolution.registry_service import registry_service
 from backend.gateway.query_rewriter import rewrite_query
 from backend.gateway.skill_context_builder import build_skill_context
 from backend.gateway.skill_retriever import retrieve_skills
@@ -27,6 +28,14 @@ class GatewayManager:
         candidates = retrieve_skills(query)
         selected = select_skills(candidates)
         context = build_skill_context(selected)
+        registry_service.increment_usage(
+            [str(item["name"]) for item in candidates],
+            "retrieved_count",
+        )
+        registry_service.increment_usage(
+            [str(item["name"]) for item in selected],
+            "selected_count",
+        )
 
         payload = {
             "query": query,
@@ -51,4 +60,3 @@ class GatewayManager:
 
 
 gateway_manager = GatewayManager(settings.gateway_hits_path)
-

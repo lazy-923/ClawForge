@@ -13,14 +13,19 @@ class RegistryService:
         skills_index_path: Path,
         merge_history_path: Path,
         lineage_path: Path,
+        usage_stats_path: Path,
     ) -> None:
         self.skills_index_path = skills_index_path
         self.merge_history_path = merge_history_path
         self.lineage_path = lineage_path
+        self.usage_stats_path = usage_stats_path
         for path in (skills_index_path, merge_history_path, lineage_path):
             path.parent.mkdir(parents=True, exist_ok=True)
             if not path.exists():
                 path.write_text("[]", encoding="utf-8")
+        self.usage_stats_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.usage_stats_path.exists():
+            self.usage_stats_path.write_text("{}", encoding="utf-8")
 
     def refresh_skills_index(self) -> list[dict[str, object]]:
         skills = list_skill_metadata()
@@ -40,6 +45,49 @@ class RegistryService:
         items.append(payload)
         self._write_json(self.lineage_path, items)
 
+    def increment_usage(
+        self,
+        skill_names: list[str],
+        counter: str,
+    ) -> None:
+        payload = self._read_stats()
+        for skill_name in skill_names:
+            item = payload.setdefault(
+                skill_name,
+                {"retrieved_count": 0, "selected_count": 0, "adopted_count": 0},
+            )
+            item[counter] = int(item.get(counter, 0)) + 1
+        self._write_stats(payload)
+
+    def get_skill_usage(self, skill_name: str) -> dict[str, int]:
+        payload = self._read_stats()
+        return payload.get(
+            skill_name,
+            {"retrieved_count": 0, "selected_count": 0, "adopted_count": 0},
+        )
+
+    def get_skill_lineage(self, skill_name: str) -> list[dict[str, object]]:
+        items = self._read_json(self.lineage_path)
+        return [item for item in items if item["skill"] == skill_name]
+
+    def get_stale_skills(self) -> list[dict[str, object]]:
+        stats = self._read_stats()
+        stale_skills: list[dict[str, object]] = []
+        for skill_name, item in stats.items():
+            retrieved = int(item.get("retrieved_count", 0))
+            selected = int(item.get("selected_count", 0))
+            if retrieved >= 3 and selected == 0:
+                stale_skills.append(
+                    {
+                        "skill": skill_name,
+                        "retrieved_count": retrieved,
+                        "selected_count": selected,
+                        "adopted_count": int(item.get("adopted_count", 0)),
+                        "reason": "High retrieval count but never selected.",
+                    }
+                )
+        return stale_skills
+
     def _read_json(self, path: Path) -> list[dict[str, object]]:
         return json.loads(path.read_text(encoding="utf-8"))
 
@@ -49,10 +97,19 @@ class RegistryService:
             encoding="utf-8",
         )
 
+    def _read_stats(self) -> dict[str, dict[str, int]]:
+        return json.loads(self.usage_stats_path.read_text(encoding="utf-8"))
+
+    def _write_stats(self, payload: dict[str, dict[str, int]]) -> None:
+        self.usage_stats_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
 
 registry_service = RegistryService(
     settings.skills_index_path,
     settings.merge_history_path,
     settings.lineage_path,
+    settings.usage_stats_path,
 )
-
