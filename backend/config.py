@@ -30,6 +30,9 @@ class Settings:
     skill_drafts_dir: Path = backend_dir / "skill_drafts"
     skill_registry_dir: Path = backend_dir / "skill_registry"
     draft_index_path: Path = skill_registry_dir / "draft_index.json"
+    skills_index_path: Path = skill_registry_dir / "skills_index.json"
+    merge_history_path: Path = skill_registry_dir / "merge_history.json"
+    lineage_path: Path = skill_registry_dir / "lineage.json"
 
 
 settings = Settings()

@@ -45,6 +45,7 @@ def list_skill_metadata() -> list[dict[str, object]]:
             {
                 "name": metadata.get("name", path.parent.name),
                 "description": metadata.get("description", "No description"),
+                "version": metadata.get("version", "0.1.0"),
                 "location": str(path.relative_to(settings.backend_dir)),
                 "tags": metadata.get("tags", []),
                 "triggers": metadata.get("triggers", []),
@@ -74,4 +75,3 @@ def scan_skills() -> list[dict[str, object]]:
     skills = list_skill_metadata()
     settings.snapshot_path.write_text(_render_snapshot(skills), encoding="utf-8")
     return skills
-

@@ -62,7 +62,7 @@ class DraftService:
 
     def list_drafts(self) -> list[dict[str, object]]:
         return sorted(
-            json.loads(self.index_path.read_text(encoding="utf-8")),
+            self._load_index(),
             key=lambda item: item["created_at"],
             reverse=True,
         )
@@ -82,8 +82,41 @@ class DraftService:
             "content": path.read_text(encoding="utf-8"),
         }
 
+    def get_draft_record(self, draft_id: str) -> dict[str, object] | None:
+        items = self._load_index()
+        return next((item for item in items if item["draft_id"] == draft_id), None)
+
+    def update_draft_status(
+        self,
+        draft_id: str,
+        status: str,
+        *,
+        operation: str,
+        target_skill: str | None = None,
+    ) -> dict[str, object] | None:
+        items = self._load_index()
+        updated: dict[str, object] | None = None
+        for item in items:
+            if item["draft_id"] != draft_id:
+                continue
+            item["status"] = status
+            item["governance_operation"] = operation
+            item["governed_at"] = datetime.now(timezone.utc).isoformat()
+            if target_skill is not None:
+                item["target_skill"] = target_skill
+                item["related_skill"] = target_skill
+            updated = item
+            break
+
+        if updated is None:
+            return None
+
+        self._write_index(items)
+        self._update_markdown_status(draft_id, status)
+        return updated
+
     def _append_index(self, payload: dict[str, object]) -> None:
-        items = json.loads(self.index_path.read_text(encoding="utf-8"))
+        items = self._load_index()
         items.append(
             {
                 "draft_id": payload["draft_id"],
@@ -95,13 +128,16 @@ class DraftService:
                 "recommended_action": payload["recommended_action"],
                 "related_skill": payload["related_skill"],
                 "judge_reason": payload["judge_reason"],
+                "goal": payload["goal"],
+                "constraints": payload["constraints"],
+                "workflow": payload["workflow"],
+                "why_extracted": payload["why_extracted"],
+                "related_skills": payload["related_skills"],
+                "evidence": payload["evidence"],
                 "created_at": payload["created_at"],
             }
         )
-        self.index_path.write_text(
-            json.dumps(items, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        self._write_index(items)
 
     def _write_draft_markdown(self, payload: dict[str, object]) -> None:
         lines = [
@@ -144,6 +180,28 @@ class DraftService:
         )
         path = self.drafts_dir / f"{payload['draft_id']}.md"
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _update_markdown_status(self, draft_id: str, status: str) -> None:
+        path = self.drafts_dir / f"{draft_id}.md"
+        if not path.exists():
+            return
+        lines = path.read_text(encoding="utf-8").splitlines()
+        updated_lines: list[str] = []
+        for line in lines:
+            if line.startswith("status:"):
+                updated_lines.append(f"status: {status}")
+            else:
+                updated_lines.append(line)
+        path.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+
+    def _load_index(self) -> list[dict[str, object]]:
+        return json.loads(self.index_path.read_text(encoding="utf-8"))
+
+    def _write_index(self, items: list[dict[str, object]]) -> None:
+        self.index_path.write_text(
+            json.dumps(items, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
 
 draft_service = DraftService(settings.skill_drafts_dir, settings.draft_index_path)
