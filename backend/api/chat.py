@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from backend.evolution.draft_service import draft_service
 from backend.gateway.gateway_manager import gateway_manager
 from backend.graph.agent import agent_manager
 from backend.graph.session_manager import session_manager
@@ -44,6 +45,7 @@ async def chat(request: ChatRequest):
         )
         session_manager.save_message(session_id, "user", request.message)
         session_manager.save_message(session_id, "assistant", content)
+        draft = draft_service.process_turn(session_id, request.message, content)
         if title:
             session_manager.rename_session(session_id, title)
         return JSONResponse(
@@ -52,6 +54,7 @@ async def chat(request: ChatRequest):
                 "content": content,
                 "title": title,
                 "skill_hit": skill_hit,
+                "draft": draft,
             }
         )
 
@@ -80,11 +83,25 @@ async def chat(request: ChatRequest):
                 final_content = "".join(content_parts)
                 session_manager.save_message(session_id, "user", request.message)
                 session_manager.save_message(session_id, "assistant", final_content)
+                draft = draft_service.process_turn(
+                    session_id,
+                    request.message,
+                    final_content,
+                )
                 if title:
                     session_manager.rename_session(session_id, title)
                     yield _sse_message(
                         "title",
                         {"session_id": session_id, "title": title},
+                    )
+                if draft:
+                    yield _sse_message(
+                        "draft_generated",
+                        {
+                            "draft_id": draft["draft_id"],
+                            "recommended_action": draft["recommended_action"],
+                            "related_skill": draft["related_skill"],
+                        },
                     )
                 yield _sse_message(
                     "done",
@@ -92,6 +109,7 @@ async def chat(request: ChatRequest):
                         "session_id": session_id,
                         "content": final_content,
                         "skill_hit": skill_hit,
+                        "draft": draft,
                     },
                 )
 

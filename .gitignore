@@ -10,3 +10,5 @@ dist/
 coverage/
 backend/sessions/*.json
 backend/storage/*.json
+backend/skill_drafts/*.md
+backend/skill_registry/*.json
