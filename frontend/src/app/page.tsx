@@ -38,6 +38,8 @@ type DraftSummary = {
   created_at: string;
 };
 
+type GovernanceAction = "promote" | "merge" | "ignore";
+
 type SessionDetail = {
   session_id: string;
   title: string;
@@ -72,6 +74,7 @@ export default function HomePage() {
   const [isBooting, setIsBooting] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [skillHit, setSkillHit] = useState<SkillHit | null>(null);
+  const [governanceDraftId, setGovernanceDraftId] = useState<string | null>(null);
 
   async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -202,6 +205,42 @@ export default function HomePage() {
       setMessage(input);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleGovernDraft(
+    draft: DraftSummary,
+    action: GovernanceAction,
+  ) {
+    setGovernanceDraftId(draft.draft_id);
+    setError(null);
+
+    try {
+      const path =
+        action === "promote"
+          ? `/drafts/${draft.draft_id}/promote`
+          : action === "merge"
+            ? `/drafts/${draft.draft_id}/merge`
+            : `/drafts/${draft.draft_id}/ignore`;
+
+      const init: RequestInit = {
+        method: "POST",
+      };
+
+      if (action === "merge" && draft.related_skill) {
+        init.body = JSON.stringify({ target_skill: draft.related_skill });
+      }
+
+      await fetchJson(path, init);
+      await Promise.all([
+        loadDrafts(),
+        activeSessionId ? loadSessionDetail(activeSessionId) : Promise.resolve(),
+        loadSessions(activeSessionId),
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : DEFAULT_ERROR);
+    } finally {
+      setGovernanceDraftId(null);
     }
   }
 
@@ -343,6 +382,36 @@ export default function HomePage() {
                 action: {draft.recommended_action}
                 {draft.related_skill ? ` -> ${draft.related_skill}` : ""}
               </span>
+              {draft.judge_reason ? (
+                <span className="draft-reason">{draft.judge_reason}</span>
+              ) : null}
+              {draft.status === "pending" ? (
+                <div className="draft-actions">
+                  <button
+                    className="ghost-button action-button"
+                    disabled={governanceDraftId === draft.draft_id}
+                    onClick={() => void handleGovernDraft(draft, "promote")}
+                  >
+                    {governanceDraftId === draft.draft_id ? "Working..." : "Promote"}
+                  </button>
+                  <button
+                    className="ghost-button action-button"
+                    disabled={
+                      governanceDraftId === draft.draft_id || !draft.related_skill
+                    }
+                    onClick={() => void handleGovernDraft(draft, "merge")}
+                  >
+                    Merge
+                  </button>
+                  <button
+                    className="ghost-button action-button danger"
+                    disabled={governanceDraftId === draft.draft_id}
+                    onClick={() => void handleGovernDraft(draft, "ignore")}
+                  >
+                    Ignore
+                  </button>
+                </div>
+              ) : null}
             </article>
           ))}
           {!sessionDrafts.length ? (

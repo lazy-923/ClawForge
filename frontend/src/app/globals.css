@@ -310,6 +310,12 @@ button {
   line-height: 1.55;
 }
 
+.draft-reason {
+  display: block;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
 .draft-card-head {
   display: flex;
   justify-content: space-between;
@@ -337,6 +343,23 @@ button {
 
 .status-ignored {
   background: rgba(95, 107, 125, 0.12);
+}
+
+.draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.action-button {
+  padding-inline: 14px;
+}
+
+.action-button.danger {
+  color: #8f2d1f;
+  border-color: rgba(143, 45, 31, 0.18);
+  background: rgba(143, 45, 31, 0.06);
 }
 
 .empty-state {
