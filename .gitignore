@@ -13,6 +13,7 @@ dist/
 coverage/
 frontend/.npm-cache/
 backend/storage/local_runner*/
+backend/storage/retrieval_test_*/
 backend/sessions/*.json
 backend/storage/*.json
 backend/storage/test_backups*/

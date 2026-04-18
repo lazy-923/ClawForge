@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 
 from backend.config import settings
+from backend.retrieval.text_matcher import collect_terms
+from backend.retrieval.text_matcher import extract_terms
 
 
 class MemoryIndexer:
@@ -15,11 +17,11 @@ class MemoryIndexer:
 
         content = self.path.read_text(encoding="utf-8")
         chunks = [chunk.strip() for chunk in re.split(r"\n\s*\n", content) if chunk.strip()]
-        query_terms = {term for term in re.findall(r"\w+", query.lower()) if len(term) > 2}
+        query_terms = set(extract_terms(query, min_length=3))
         scored: list[tuple[int, str]] = []
 
         for chunk in chunks:
-            chunk_terms = set(re.findall(r"\w+", chunk.lower()))
+            chunk_terms = collect_terms([chunk], min_length=3)
             score = len(query_terms & chunk_terms)
             if score > 0:
                 scored.append((score, chunk))
@@ -32,4 +34,3 @@ class MemoryIndexer:
 
 
 memory_indexer = MemoryIndexer()
-
