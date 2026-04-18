@@ -40,6 +40,33 @@ type DraftSummary = {
 
 type GovernanceAction = "promote" | "merge" | "ignore";
 
+type DraftDetail = DraftSummary & {
+  content: string;
+};
+
+type SkillUsage = {
+  retrieved_count: number;
+  selected_count: number;
+  adopted_count: number;
+};
+
+type LineageEntry = {
+  skill: string;
+  version: string;
+  parent_version: string | null;
+  source_draft: string;
+  operation: string;
+  timestamp: string;
+};
+
+type StaleSkill = {
+  skill: string;
+  retrieved_count: number;
+  selected_count: number;
+  adopted_count: number;
+  reason: string;
+};
+
 type SessionDetail = {
   session_id: string;
   title: string;
@@ -85,6 +112,13 @@ export default function HomePage() {
     null,
   );
   const [isStreaming, setIsStreaming] = useState(false);
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+  const [selectedDraftDetail, setSelectedDraftDetail] = useState<DraftDetail | null>(null);
+  const [selectedSkillName, setSelectedSkillName] = useState<string | null>(null);
+  const [selectedSkillContent, setSelectedSkillContent] = useState<string>("");
+  const [selectedSkillUsage, setSelectedSkillUsage] = useState<SkillUsage | null>(null);
+  const [selectedSkillLineage, setSelectedSkillLineage] = useState<LineageEntry[]>([]);
+  const [staleSkills, setStaleSkills] = useState<StaleSkill[]>([]);
 
   async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -146,11 +180,34 @@ export default function HomePage() {
     setDrafts(draftItems);
   }
 
+  async function loadDraftDetail(draftId: string) {
+    const detail = await fetchJson<DraftDetail>(`/drafts/${draftId}`);
+    setSelectedDraftDetail(detail);
+  }
+
+  async function loadSkillInspector(skillName: string) {
+    const [usage, lineage, file] = await Promise.all([
+      fetchJson<SkillUsage>(`/skills/${skillName}/usage`),
+      fetchJson<LineageEntry[]>(`/skills/${skillName}/lineage`),
+      fetchJson<{ path: string; content: string }>(
+        `/files?path=${encodeURIComponent(`skills/${skillName}/SKILL.md`)}`,
+      ),
+    ]);
+    setSelectedSkillUsage(usage);
+    setSelectedSkillLineage(lineage);
+    setSelectedSkillContent(file.content);
+  }
+
+  async function loadStaleSkills() {
+    const items = await fetchJson<StaleSkill[]>("/skills/audit/stale");
+    setStaleSkills(items);
+  }
+
   async function bootstrap() {
     setIsBooting(true);
     setError(null);
     try {
-      await Promise.all([loadSessions(), loadDrafts()]);
+      await Promise.all([loadSessions(), loadDrafts(), loadStaleSkills()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : DEFAULT_ERROR);
     } finally {
@@ -170,6 +227,12 @@ export default function HomePage() {
         body: JSON.stringify({ title: "New Session" }),
       });
       await loadSessions(session.session_id);
+      setSelectedDraftId(null);
+      setSelectedDraftDetail(null);
+      setSelectedSkillName(null);
+      setSelectedSkillContent("");
+      setSelectedSkillUsage(null);
+      setSelectedSkillLineage([]);
     } catch (err) {
       setError(err instanceof Error ? err.message : DEFAULT_ERROR);
     }
@@ -299,9 +362,9 @@ export default function HomePage() {
       }
 
       if (streamedSessionId) {
-        await Promise.all([loadSessions(streamedSessionId), loadDrafts()]);
+        await Promise.all([loadSessions(streamedSessionId), loadDrafts(), loadStaleSkills()]);
       } else {
-        await loadDrafts();
+        await Promise.all([loadDrafts(), loadStaleSkills()]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : DEFAULT_ERROR);
@@ -339,6 +402,7 @@ export default function HomePage() {
       await fetchJson(path, init);
       await Promise.all([
         loadDrafts(),
+        loadStaleSkills(),
         activeSessionId ? loadSessionDetail(activeSessionId) : Promise.resolve(),
         loadSessions(activeSessionId),
       ]);
@@ -352,6 +416,68 @@ export default function HomePage() {
   const sessionDrafts = drafts.filter(
     (draft) => draft.source_session_id === activeSessionId,
   );
+
+  useEffect(() => {
+    if (!sessionDrafts.length) {
+      setSelectedDraftId(null);
+      setSelectedDraftDetail(null);
+      return;
+    }
+
+    const draftStillExists = sessionDrafts.some((draft) => draft.draft_id === selectedDraftId);
+    const nextDraftId = draftStillExists ? selectedDraftId : sessionDrafts[0].draft_id;
+    if (nextDraftId && nextDraftId !== selectedDraftId) {
+      setSelectedDraftId(nextDraftId);
+    }
+  }, [sessionDrafts, selectedDraftId]);
+
+  useEffect(() => {
+    if (!selectedDraftId) {
+      setSelectedDraftDetail(null);
+      return;
+    }
+
+    void loadDraftDetail(selectedDraftId).catch(() => {
+      setSelectedDraftDetail(null);
+    });
+  }, [selectedDraftId]);
+
+  useEffect(() => {
+    const availableSkillNames = [
+      ...(skillHit?.selected_skills.map((skill) => skill.name) ?? []),
+      ...sessionDrafts
+        .map((draft) => draft.related_skill)
+        .filter((skill): skill is string => Boolean(skill)),
+    ];
+
+    const uniqueSkillNames = [...new Set(availableSkillNames)];
+    if (!uniqueSkillNames.length) {
+      setSelectedSkillName(null);
+      setSelectedSkillContent("");
+      setSelectedSkillUsage(null);
+      setSelectedSkillLineage([]);
+      return;
+    }
+
+    if (!selectedSkillName || !uniqueSkillNames.includes(selectedSkillName)) {
+      setSelectedSkillName(uniqueSkillNames[0]);
+    }
+  }, [skillHit, sessionDrafts, selectedSkillName]);
+
+  useEffect(() => {
+    if (!selectedSkillName) {
+      setSelectedSkillContent("");
+      setSelectedSkillUsage(null);
+      setSelectedSkillLineage([]);
+      return;
+    }
+
+    void loadSkillInspector(selectedSkillName).catch(() => {
+      setSelectedSkillContent("");
+      setSelectedSkillUsage(null);
+      setSelectedSkillLineage([]);
+    });
+  }, [selectedSkillName]);
 
   return (
     <main className="workspace-shell">
@@ -469,11 +595,17 @@ export default function HomePage() {
 
         <div className="skill-list">
           {skillHit?.selected_skills.map((skill) => (
-            <article key={skill.name} className="skill-card">
+            <button
+              key={skill.name}
+              className={
+                selectedSkillName === skill.name ? "skill-card active" : "skill-card"
+              }
+              onClick={() => setSelectedSkillName(skill.name)}
+            >
               <strong>{skill.name}</strong>
               <p>{skill.description}</p>
               {skill.reason ? <span>{skill.reason}</span> : null}
-            </article>
+            </button>
           ))}
           {!skillHit?.selected_skills.length ? (
             <p className="empty-state">No activated skills for this session yet.</p>
@@ -487,7 +619,12 @@ export default function HomePage() {
 
         <div className="draft-list">
           {sessionDrafts.map((draft) => (
-            <article key={draft.draft_id} className="draft-card">
+            <article
+              key={draft.draft_id}
+              className={
+                selectedDraftId === draft.draft_id ? "draft-card active" : "draft-card"
+              }
+            >
               <div className="draft-card-head">
                 <strong>{draft.name}</strong>
                 <span className={`status-pill status-${draft.status}`}>
@@ -527,12 +664,101 @@ export default function HomePage() {
                   >
                     Ignore
                   </button>
+                  <button
+                    className="ghost-button action-button"
+                    disabled={governanceDraftId === draft.draft_id}
+                    onClick={() => setSelectedDraftId(draft.draft_id)}
+                  >
+                    Inspect
+                  </button>
                 </div>
               ) : null}
             </article>
           ))}
           {!sessionDrafts.length ? (
             <p className="empty-state">No drafts generated for this session yet.</p>
+          ) : null}
+        </div>
+
+        <div className="section-head secondary">
+          <h2>Draft Inspector</h2>
+          <span>{selectedDraftDetail ? selectedDraftDetail.draft_id : "empty"}</span>
+        </div>
+
+        <div className="detail-card">
+          {selectedDraftDetail ? (
+            <>
+              <strong>{selectedDraftDetail.name}</strong>
+              <p>{selectedDraftDetail.description}</p>
+              <pre>{selectedDraftDetail.content}</pre>
+            </>
+          ) : (
+            <p className="empty-state">Select a draft to inspect its full content.</p>
+          )}
+        </div>
+
+        <div className="section-head secondary">
+          <h2>Skill Inspector</h2>
+          <span>{selectedSkillName ?? "empty"}</span>
+        </div>
+
+        <div className="detail-card">
+          {selectedSkillName ? (
+            <>
+              <strong>{selectedSkillName}</strong>
+              {selectedSkillUsage ? (
+                <div className="metric-grid">
+                  <div className="metric-card">
+                    <small>Retrieved</small>
+                    <strong>{selectedSkillUsage.retrieved_count}</strong>
+                  </div>
+                  <div className="metric-card">
+                    <small>Selected</small>
+                    <strong>{selectedSkillUsage.selected_count}</strong>
+                  </div>
+                  <div className="metric-card">
+                    <small>Adopted</small>
+                    <strong>{selectedSkillUsage.adopted_count}</strong>
+                  </div>
+                </div>
+              ) : null}
+              <pre>{selectedSkillContent || "Skill content is not available."}</pre>
+              <div className="lineage-list">
+                {selectedSkillLineage.map((entry) => (
+                  <article key={`${entry.skill}-${entry.timestamp}`} className="lineage-card">
+                    <strong>{entry.version}</strong>
+                    <span>{entry.operation}</span>
+                    <span>parent: {entry.parent_version ?? "none"}</span>
+                    <span>source: {entry.source_draft}</span>
+                  </article>
+                ))}
+                {!selectedSkillLineage.length ? (
+                  <p className="empty-state">No lineage records for this skill yet.</p>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <p className="empty-state">Select an activated or related skill to inspect it.</p>
+          )}
+        </div>
+
+        <div className="section-head secondary">
+          <h2>Stale Audit</h2>
+          <span>{staleSkills.length}</span>
+        </div>
+
+        <div className="stale-list">
+          {staleSkills.map((item) => (
+            <article key={item.skill} className="stale-card">
+              <strong>{item.skill}</strong>
+              <span>{item.reason}</span>
+              <span>
+                retrieved {item.retrieved_count} / selected {item.selected_count}
+              </span>
+            </article>
+          ))}
+          {!staleSkills.length ? (
+            <p className="empty-state">No stale skills detected right now.</p>
           ) : null}
         </div>
       </aside>
