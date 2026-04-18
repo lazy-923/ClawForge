@@ -176,7 +176,7 @@ class AgentManager:
         messages = result.get("messages", [])
         for item in reversed(messages):
             if isinstance(item, AIMessage):
-                return item.text()
+                return item.text
             if isinstance(item, dict) and item.get("role") == "assistant":
                 return str(item.get("content", ""))
         return ""

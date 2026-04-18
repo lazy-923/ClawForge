@@ -9,6 +9,7 @@ node_modules/
 .env
 dist/
 coverage/
+backend/storage/local_runner*/
 backend/sessions/*.json
 backend/storage/*.json
 backend/storage/test_backups*/
