@@ -12,12 +12,14 @@ from backend.api.health import router as health_router
 from backend.api.sessions import router as sessions_router
 from backend.api.skills import router as skills_router
 from backend.config import settings
+from backend.graph.agent import agent_manager
 from backend.tools.skills_scanner import scan_skills
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     scan_skills()
+    await agent_manager.initialize()
     yield
 
 

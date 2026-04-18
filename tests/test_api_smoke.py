@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import shutil
-import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -15,7 +15,8 @@ class ApiSmokeTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.client = TestClient(app)
-        cls._backups_dir = Path(tempfile.mkdtemp(prefix="clawforge_test_backups_"))
+        cls._backups_dir = settings.storage_dir / f"test_backups_{uuid.uuid4().hex}"
+        cls._backups_dir.mkdir(parents=True, exist_ok=True)
         cls._managed_paths = [
             settings.gateway_hits_path,
             settings.draft_index_path,
