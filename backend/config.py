@@ -36,6 +36,16 @@ class Settings:
     )
     llm_model: str = _read_env("LLM_MODEL", "qwen-plus")
     llm_temperature: float = float(_read_env("LLM_TEMPERATURE", "0.2"))
+    embedding_api_key: str = _read_env("EMBEDDING_API_KEY", _read_env("OPENAI_API_KEY", ""))
+    embedding_base_url: str = _read_env(
+        "EMBEDDING_BASE_URL",
+        _read_env("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+    )
+    embedding_model: str = _read_env("EMBEDDING_MODEL", "text-embedding-3-small")
+    rag_chunk_size: int = int(_read_env("RAG_CHUNK_SIZE", "256"))
+    rag_chunk_overlap: int = int(_read_env("RAG_CHUNK_OVERLAP", "32"))
+    rag_vector_top_k: int = int(_read_env("RAG_VECTOR_TOP_K", "6"))
+    rag_bm25_top_k: int = int(_read_env("RAG_BM25_TOP_K", "6"))
     backend_dir: Path = Path(__file__).resolve().parent
     project_root: Path = backend_dir.parent
     skills_dir: Path = backend_dir / "skills"
@@ -53,10 +63,16 @@ class Settings:
     merge_history_path: Path = skill_registry_dir / "merge_history.json"
     lineage_path: Path = skill_registry_dir / "lineage.json"
     usage_stats_path: Path = skill_registry_dir / "usage_stats.json"
+    memory_index_dir: Path = storage_dir / "memory_index"
+    knowledge_index_dir: Path = storage_dir / "knowledge_index"
 
     @property
     def llm_is_configured(self) -> bool:
         return bool(self.llm_api_key and self.llm_base_url and self.llm_model)
+
+    @property
+    def embedding_is_configured(self) -> bool:
+        return bool(self.embedding_api_key and self.embedding_base_url and self.embedding_model)
 
 
 settings = Settings()

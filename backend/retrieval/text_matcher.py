@@ -53,6 +53,8 @@ CANONICAL_FORMS = {
     "translating": "translate",
 }
 
+BM25_TOKEN_PATTERN = re.compile(r"[\u4e00-\u9fff]|[A-Za-z0-9_]+")
+
 
 def normalize_token(token: str) -> str:
     lowered = token.strip().lower()
@@ -87,3 +89,16 @@ def collect_terms(fields: Iterable[object], *, min_length: int = 2) -> set[str]:
         for item in iterable:
             terms.update(extract_terms(str(item), min_length=min_length))
     return terms
+
+
+def tokenize_for_bm25(text: str) -> list[str]:
+    tokens: list[str] = []
+    for raw in BM25_TOKEN_PATTERN.findall(text.lower()):
+        if re.fullmatch(r"[\u4e00-\u9fff]", raw):
+            normalized = raw
+        else:
+            normalized = normalize_token(raw)
+        if not normalized or normalized in STOP_WORDS:
+            continue
+        tokens.append(normalized)
+    return tokens

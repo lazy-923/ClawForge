@@ -9,7 +9,9 @@ from backend.config import settings
 from backend.evolution.related_skill_finder import find_related_skills
 from backend.gateway.query_rewriter import rewrite_query
 from backend.gateway.skill_retriever import retrieve_skills
+from backend.graph.knowledge_indexer import knowledge_indexer
 from backend.graph.memory_indexer import memory_indexer
+from backend.tools.search_knowledge_tool import search_knowledge_base
 from backend.tools.skills_scanner import scan_skills
 
 
@@ -93,6 +95,33 @@ class RetrievalQualityTestCase(unittest.TestCase):
                 "weather" in item["text"].lower() or "concise updates" in item["text"].lower()
                 for item in content_results
             )
+        )
+        self.assertTrue(
+            all(item["retrieval_mode"] in {"bm25", "vector", "hybrid"} for item in content_results)
+        )
+
+    def test_knowledge_search_uses_llamaindex_pipeline(self) -> None:
+        knowledge_path = settings.knowledge_dir / f"retrieval_test_{uuid.uuid4().hex}.md"
+        knowledge_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            knowledge_path.write_text(
+                "# Ops Note\n\nShanghai weather playbook for concise incident updates.\n",
+                encoding="utf-8",
+            )
+            knowledge_indexer.rebuild_index()
+            results = search_knowledge_base("shanghai weather incident update", top_k=3)
+        finally:
+            if knowledge_path.exists():
+                try:
+                    knowledge_path.unlink()
+                except PermissionError:
+                    pass
+            knowledge_indexer.rebuild_index()
+
+        self.assertGreater(len(results), 0)
+        self.assertTrue(any("retrieval_test_" in item["path"] for item in results))
+        self.assertTrue(
+            all(item["retrieval_mode"] in {"bm25", "vector", "hybrid"} for item in results)
         )
 
 

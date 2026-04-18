@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from backend.config import settings
+from backend.graph.knowledge_indexer import knowledge_indexer
+from backend.graph.memory_indexer import memory_indexer
 from backend.tools.skills_scanner import list_skill_metadata, scan_skills
 
 router = APIRouter(tags=["files"])
@@ -59,6 +61,10 @@ async def save_file(request: SaveFileRequest) -> dict[str, str]:
 
     if target.parent == settings.skills_dir or settings.skills_dir in target.parents:
         scan_skills()
+    if target == settings.memory_dir / "MEMORY.md":
+        memory_indexer.rebuild_index()
+    if target.parent == settings.knowledge_dir or settings.knowledge_dir in target.parents:
+        knowledge_indexer.rebuild_index()
 
     return {"path": request.path, "status": "saved"}
 
@@ -67,4 +73,3 @@ async def save_file(request: SaveFileRequest) -> dict[str, str]:
 async def list_skills() -> list[dict[str, object]]:
     scan_skills()
     return list_skill_metadata()
-
