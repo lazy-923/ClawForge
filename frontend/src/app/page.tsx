@@ -54,6 +54,12 @@ type ChatResponse = {
   draft: DraftSummary | null;
 };
 
+type DraftGeneratedEvent = {
+  draft_id: string;
+  recommended_action: string;
+  related_skill: string | null;
+};
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
   "http://127.0.0.1:8002/api";
@@ -75,6 +81,10 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [skillHit, setSkillHit] = useState<SkillHit | null>(null);
   const [governanceDraftId, setGovernanceDraftId] = useState<string | null>(null);
+  const [streamDraftEvent, setStreamDraftEvent] = useState<DraftGeneratedEvent | null>(
+    null,
+  );
+  const [isStreaming, setIsStreaming] = useState(false);
 
   async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -185,25 +195,120 @@ export default function HomePage() {
     setMessage("");
     setIsLoading(true);
     setError(null);
+    setStreamDraftEvent(null);
+
+    const optimisticMessages: SessionMessage[] = [
+      ...messages,
+      { role: "user", content: input },
+      { role: "assistant", content: "" },
+    ];
+    setMessages(optimisticMessages);
 
     try {
-      const payload = await fetchJson<ChatResponse>("/chat", {
+      const response = await fetch(`${API_BASE}/chat`, {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           message: input,
           session_id: activeSessionId,
-          stream: false,
+          stream: true,
         }),
       });
 
-      const sessionId = payload.session_id;
-      setActiveSessionId(sessionId);
-      setSkillHit(payload.skill_hit);
-      await Promise.all([loadSessions(sessionId), loadDrafts()]);
+      if (!response.ok || !response.body) {
+        const detail = await response.text();
+        throw new Error(detail || DEFAULT_ERROR);
+      }
+
+      setIsStreaming(true);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let streamedAssistant = "";
+      let streamedSessionId = activeSessionId;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() ?? "";
+
+        for (const chunk of chunks) {
+          const lines = chunk.split("\n");
+          const eventLine = lines.find((line) => line.startsWith("event: "));
+          const dataLine = lines.find((line) => line.startsWith("data: "));
+          if (!eventLine || !dataLine) {
+            continue;
+          }
+
+          const eventName = eventLine.replace("event: ", "").trim();
+          const payload = JSON.parse(dataLine.replace("data: ", "")) as
+            | { content: string }
+            | SkillHit
+            | ChatResponse
+            | DraftGeneratedEvent
+            | { session_id: string; title: string };
+
+          if (eventName === "skill_hit") {
+            setSkillHit(payload as SkillHit);
+            continue;
+          }
+
+          if (eventName === "token") {
+            streamedAssistant += (payload as { content: string }).content;
+            setMessages((current) => {
+              const next = [...current];
+              const lastIndex = next.length - 1;
+              if (lastIndex >= 0 && next[lastIndex].role === "assistant") {
+                next[lastIndex] = {
+                  ...next[lastIndex],
+                  content: streamedAssistant,
+                };
+              }
+              return next;
+            });
+            continue;
+          }
+
+          if (eventName === "draft_generated") {
+            setStreamDraftEvent(payload as DraftGeneratedEvent);
+            continue;
+          }
+
+          if (eventName === "done") {
+            const donePayload = payload as ChatResponse;
+            streamedSessionId = donePayload.session_id;
+            setActiveSessionId(donePayload.session_id);
+            setSkillHit(donePayload.skill_hit);
+            if (donePayload.draft) {
+              setStreamDraftEvent({
+                draft_id: donePayload.draft.draft_id,
+                recommended_action: donePayload.draft.recommended_action,
+                related_skill: donePayload.draft.related_skill ?? null,
+              });
+            }
+          }
+        }
+      }
+
+      if (streamedSessionId) {
+        await Promise.all([loadSessions(streamedSessionId), loadDrafts()]);
+      } else {
+        await loadDrafts();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : DEFAULT_ERROR);
       setMessage(input);
+      setMessages(messages);
     } finally {
+      setIsStreaming(false);
       setIsLoading(false);
     }
   }
@@ -308,6 +413,18 @@ export default function HomePage() {
         </div>
 
         {error ? <div className="error-banner">{error}</div> : null}
+        {isStreaming ? (
+          <div className="stream-banner">Streaming response is in progress...</div>
+        ) : null}
+        {streamDraftEvent ? (
+          <div className="draft-banner">
+            draft generated: {streamDraftEvent.draft_id} | action:{" "}
+            {streamDraftEvent.recommended_action}
+            {streamDraftEvent.related_skill
+              ? ` -> ${streamDraftEvent.related_skill}`
+              : ""}
+          </div>
+        ) : null}
 
         <div className="message-stream">
           {messages.map((entry, index) => (
@@ -334,7 +451,7 @@ export default function HomePage() {
             rows={4}
           />
           <button className="primary-button" disabled={isLoading || isBooting}>
-            {isLoading ? "Sending..." : "Send Message"}
+            {isLoading ? "Streaming..." : "Send Message"}
           </button>
         </form>
       </section>
