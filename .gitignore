@@ -15,7 +15,7 @@ frontend/.npm-cache/
 backend/storage/local_runner*/
 backend/storage/retrieval_test_*/
 backend/sessions/*.json
-backend/storage/*.json
+backend/storage/
 backend/storage/test_backups*/
 backend/skill_drafts/*.md
 backend/skill_registry/*.json
