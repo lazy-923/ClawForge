@@ -387,18 +387,23 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 - `memory / knowledge` 的 RAG 检索后端已开始切到 `LlamaIndex`
 - 真正还没升级完成的是 `Skill Gateway` 的技能检索
 
-## 5.3 Draft 提取仍然是演示版逻辑
+## 5.3 Draft 提取已完成 Phase B 首版
 
-当前 Draft Extractor 主要依赖关键词映射，并不是真正从对话中抽取 durable / reusable skill。
+当前后端已经不再是“聊天结束后同步关键词触发 draft”的旧形态，而是完成了 Phase B 的首版升级：
 
-存在的问题：
+- 已新增后台异步 `EvolutionRunner`
+- 前台聊天响应不再等待 extraction 完成
+- Draft Extractor 已扩展为读取最近多轮消息，而不只看单轮 user message
+- 已接入 top-1 skill hit 的 identity context
+- 已增加“单次偶发请求不轻易触发 draft”的基础去噪逻辑
+- 已补 API smoke test、extractor 单测与本地 runner 验证
 
-- 泛化能力有限
-- 容易误提取
-- 无法真正反映长期交互中的稳定偏好
-- 仍未形成后台异步 `EvolutionAgent -> Extractor/Judge/Merger` 的编排
+但这部分仍未完全达到 PRD 中的最终目标，当前剩余问题主要是：
 
-这部分离 PRD 中的“经验沉淀系统”仍有较大距离。
+- 抽取仍是启发式规则驱动，还不是完整的 `ExtractorSubAgent`
+- durable / reusable / one-off 的判断仍偏轻量
+- related skill / judge / merger 仍未升级到独立子智能体编排
+- 与完整的 evolution 回放、评估和治理质量提升相比仍有差距
 
 ## 5.4 Skill Merge / Versioning 还比较初级
 

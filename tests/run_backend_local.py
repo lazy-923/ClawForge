@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from openai import APIConnectionError
 
 from backend.config import settings
+from backend.evolution.evolution_runner import evolution_runner
 from backend.evolution.draft_service import draft_service
 from backend.evolution.promotion_service import promotion_service
 from backend.evolution.registry_service import registry_service
@@ -31,13 +32,18 @@ TURN_SCENARIOS = [
     },
     {
         "label": "Turn 2",
-        "message": "Please summarize the weather result in three short bullet points.",
+        "message": "Please summarize the weather result in three short bullet points for the daily ops note.",
         "expect_skill": None,
     },
     {
         "label": "Turn 3",
-        "message": "Please rewrite the summary in a more professional style for an operations update.",
-        "expect_skill": None,
+        "message": "Rewrite that summary in a more professional and concise style for leadership.",
+        "expect_skill": "professional_rewrite",
+    },
+    {
+        "label": "Turn 4",
+        "message": "Keep the same professional rewrite style, but make it slightly shorter.",
+        "expect_skill": "professional_rewrite",
     },
 ]
 
@@ -60,6 +66,11 @@ class LocalBackendRunner:
             for path in settings.skills_dir.iterdir()
             if path.is_dir()
         }
+        self.existing_skill_files = {
+            path.name: path / "SKILL.md"
+            for path in settings.skills_dir.iterdir()
+            if path.is_dir() and (path / "SKILL.md").exists()
+        }
 
     def backup(self) -> None:
         self.backups_dir.mkdir(parents=True, exist_ok=True)
@@ -69,6 +80,8 @@ class LocalBackendRunner:
                 shutil.copyfile(path, backup_path)
             elif backup_path.exists():
                 backup_path.unlink()
+        for skill_name, skill_path in self.existing_skill_files.items():
+            shutil.copyfile(skill_path, self._skill_backup_path(skill_name))
 
     def restore(self) -> None:
         for path in self.managed_paths:
@@ -101,6 +114,15 @@ class LocalBackendRunner:
                 continue
             if path.name not in self.existing_skill_dirs:
                 shutil.rmtree(path, ignore_errors=True)
+                continue
+            backup_path = self._skill_backup_path(path.name)
+            skill_path = path / "SKILL.md"
+            if backup_path.exists():
+                shutil.copyfile(backup_path, skill_path)
+                try:
+                    backup_path.unlink()
+                except PermissionError:
+                    pass
 
         try:
             if self.backups_dir.exists():
@@ -113,6 +135,9 @@ class LocalBackendRunner:
 
     def _backup_path(self, path: Path) -> Path:
         return self.backups_dir / f"{path.name}.bak"
+
+    def _skill_backup_path(self, skill_name: str) -> Path:
+        return self.backups_dir / f"{skill_name}.SKILL.md.bak"
 
 
 async def simulate_turn(
@@ -145,7 +170,16 @@ async def simulate_turn(
         )
     session_manager.save_message(session_id, "user", message)
     session_manager.save_message(session_id, "assistant", response)
-    draft = draft_service.process_turn(session_id, message, response)
+    identity_context = None
+    if skill_hit["selected_skills"]:
+        top_skill = skill_hit["selected_skills"][0]
+        identity_context = {
+            "name": top_skill.get("name"),
+            "reason": top_skill.get("reason") or top_skill.get("description") or "",
+            "score": top_skill.get("score"),
+        }
+    evolution_runner.enqueue(session_id=session_id, identity_context=identity_context)
+    draft = await evolution_runner.wait_for_session(session_id)
     history_after = session_manager.load_session_for_agent(session_id)
     selected_names = [str(item["name"]) for item in skill_hit["selected_skills"]]
 
@@ -198,10 +232,17 @@ def govern_first_pending_draft(session_id: str) -> dict[str, object] | None:
     if target is None:
         return None
 
+    existing_skill_names = {item["name"] for item in list_skill_metadata()}
     if target["recommended_action"] == "merge" and target.get("related_skill"):
         result = promotion_service.merge(
             str(target["draft_id"]),
             str(target["related_skill"]),
+        )
+        action = "merge"
+    elif str(target["name"]) in existing_skill_names:
+        result = promotion_service.merge(
+            str(target["draft_id"]),
+            str(target["name"]),
         )
         action = "merge"
     elif target["recommended_action"] == "ignore":
@@ -235,9 +276,8 @@ async def run_local_backend_checks() -> None:
         print(f"skills: {[item['name'] for item in list_skill_metadata()]}")
         print("note: if the configured model cannot connect, the runner will auto-fallback to mock mode")
 
-        session_id, created = session_manager.ensure_session("local_runner_session")
-        if created:
-            session_manager.rename_session(session_id, "Local Runner Session")
+        session_id, _ = session_manager.ensure_session(f"local_runner_{uuid.uuid4().hex[:8]}")
+        session_manager.rename_session(session_id, "Local Runner Session")
 
         results: list[dict[str, object]] = []
         for scenario in TURN_SCENARIOS:

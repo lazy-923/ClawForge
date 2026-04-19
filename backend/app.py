@@ -12,6 +12,7 @@ from backend.api.health import router as health_router
 from backend.api.sessions import router as sessions_router
 from backend.api.skills import router as skills_router
 from backend.config import settings
+from backend.evolution.evolution_runner import evolution_runner
 from backend.graph.agent import agent_manager
 from backend.gateway.skill_indexer import skill_indexer
 from backend.graph.knowledge_indexer import knowledge_indexer
@@ -27,6 +28,7 @@ async def lifespan(_: FastAPI):
     knowledge_indexer.rebuild_index()
     await agent_manager.initialize()
     yield
+    await evolution_runner.shutdown()
 
 
 def create_app() -> FastAPI:

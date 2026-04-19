@@ -20,13 +20,25 @@ class DraftService:
         if not self.index_path.exists():
             self.index_path.write_text("[]", encoding="utf-8")
 
-    def process_turn(
+    def process_turn_context(
         self,
+        *,
         session_id: str,
-        user_message: str,
-        assistant_response: str,
+        messages: list[dict[str, object]],
+        identity_context: dict[str, object] | None = None,
     ) -> dict[str, object] | None:
-        candidate = extract_draft_candidate(user_message)
+        latest_user_message = self._latest_message(messages, "user")
+        latest_assistant_message = self._latest_message(messages, "assistant")
+        if not latest_user_message:
+            return None
+
+        recent_messages = messages[-8:]
+        candidate = extract_draft_candidate(
+            recent_messages,
+            latest_user_message=latest_user_message,
+            latest_assistant_message=latest_assistant_message,
+            identity_context=identity_context,
+        )
         if candidate is None:
             return None
 
@@ -34,6 +46,14 @@ class DraftService:
         judgment = judge_draft(related_skills)
         draft_id = f"draft_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:6]}"
 
+        evidence_messages = [
+            {
+                "role": str(item.get("role", "")),
+                "content": str(item.get("content", ""))[:400],
+            }
+            for item in recent_messages[-6:]
+            if str(item.get("content", "")).strip()
+        ]
         payload = {
             "draft_id": draft_id,
             "source_session_id": session_id,
@@ -50,11 +70,19 @@ class DraftService:
             "related_skills": related_skills,
             "judge_reason": judgment["reason"],
             "evidence": {
-                "user": user_message,
-                "assistant": assistant_response[:400],
+                "messages": evidence_messages,
+                "identity_context": identity_context,
             },
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
+
+        existing_draft = self._find_pending_duplicate(
+            session_id=session_id,
+            name=str(payload["name"]),
+            goal=str(payload["goal"]),
+        )
+        if existing_draft is not None:
+            return None
 
         self._write_draft_markdown(payload)
         self._append_index(payload)
@@ -115,6 +143,31 @@ class DraftService:
         self._update_markdown_status(draft_id, status)
         return updated
 
+    def _find_pending_duplicate(
+        self,
+        *,
+        session_id: str,
+        name: str,
+        goal: str,
+    ) -> dict[str, object] | None:
+        for item in self._load_index():
+            if item.get("source_session_id") != session_id:
+                continue
+            if item.get("status") != "pending":
+                continue
+            if item.get("name") == name and item.get("goal") == goal:
+                return item
+        return None
+
+    def _latest_message(self, messages: list[dict[str, object]], role: str) -> str:
+        for item in reversed(messages):
+            if str(item.get("role", "")) != role:
+                continue
+            content = str(item.get("content", "")).strip()
+            if content:
+                return content
+        return ""
+
     def _append_index(self, payload: dict[str, object]) -> None:
         items = self._load_index()
         items.append(
@@ -167,17 +220,21 @@ class DraftService:
         lines.extend(f"- {item}" for item in payload["constraints"])
         lines.extend(["", "# Workflow"])
         lines.extend(f"1. {item}" for item in payload["workflow"])
-        lines.extend(
-            [
-                "",
-                "# Judge",
-                payload["judge_reason"],
-                "",
-                "# Evidence",
-                f"- user: {payload['evidence']['user']}",
-                f"- assistant: {payload['evidence']['assistant']}",
-            ]
-        )
+        lines.extend(["", "# Judge", payload["judge_reason"], "", "# Evidence"])
+        for message in payload["evidence"]["messages"]:
+            lines.append(f"- {message['role']}: {message['content']}")
+
+        identity_context = payload["evidence"].get("identity_context")
+        if identity_context:
+            lines.extend(
+                [
+                    "",
+                    "# Identity Context",
+                    f"- top_skill: {identity_context.get('name', '')}",
+                    f"- reason: {identity_context.get('reason', '')}",
+                ]
+            )
+
         path = self.drafts_dir / f"{payload['draft_id']}.md"
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -205,4 +262,3 @@ class DraftService:
 
 
 draft_service = DraftService(settings.skill_drafts_dir, settings.draft_index_path)
-

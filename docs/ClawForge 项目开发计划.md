@@ -217,6 +217,14 @@
   - why_extracted
   - confidence
 
+### 当前进展（2026-04-19）
+
+- 已新增后端异步 `EvolutionRunner`
+- 聊天 API 已改为前台响应与后台 extraction 解耦
+- `draft_extractor.py` 已升级为读取最近多轮消息并接入 top-1 skill identity context
+- 已补 extractor 单测、API smoke 验证和本地 runner 验证
+- 当前实现仍是 Phase B 首版，后续还可继续向完整 `ExtractorSubAgent` 演进
+
 ### 当前问题
 
 当前 `draft_extractor.py` 仍主要依赖关键词映射：

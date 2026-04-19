@@ -7,7 +7,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from backend.evolution.draft_service import draft_service
+from backend.evolution.evolution_runner import evolution_runner
 from backend.gateway.gateway_manager import gateway_manager
 from backend.graph.agent import agent_manager
 from backend.graph.session_manager import session_manager
@@ -25,11 +25,29 @@ def _sse_message(event: str, data: dict[str, object]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _build_identity_context(skill_hit: dict[str, object]) -> dict[str, object] | None:
+    selected = skill_hit.get("selected_skills", [])
+    candidates = skill_hit.get("candidates", [])
+    top_skill = None
+    if selected:
+        top_skill = selected[0]
+    elif candidates:
+        top_skill = candidates[0]
+    if not isinstance(top_skill, dict):
+        return None
+    return {
+        "name": top_skill.get("name"),
+        "reason": top_skill.get("reason") or top_skill.get("description") or "",
+        "score": top_skill.get("score"),
+    }
+
+
 @router.post("/chat")
 async def chat(request: ChatRequest):
     session_id, created = session_manager.ensure_session(request.session_id)
     history = session_manager.load_session_for_agent(session_id)
     skill_hit = gateway_manager.activate_skills(session_id, request.message, history)
+    identity_context = _build_identity_context(skill_hit)
     title = (
         session_manager.generate_title(request.message)
         if created and not history
@@ -45,7 +63,10 @@ async def chat(request: ChatRequest):
         )
         session_manager.save_message(session_id, "user", request.message)
         session_manager.save_message(session_id, "assistant", content)
-        draft = draft_service.process_turn(session_id, request.message, content)
+        evolution_runner.enqueue(
+            session_id=session_id,
+            identity_context=identity_context,
+        )
         if title:
             session_manager.rename_session(session_id, title)
         return JSONResponse(
@@ -54,7 +75,8 @@ async def chat(request: ChatRequest):
                 "content": content,
                 "title": title,
                 "skill_hit": skill_hit,
-                "draft": draft,
+                "draft": None,
+                "evolution_queued": True,
             }
         )
 
@@ -83,10 +105,9 @@ async def chat(request: ChatRequest):
                 final_content = "".join(content_parts)
                 session_manager.save_message(session_id, "user", request.message)
                 session_manager.save_message(session_id, "assistant", final_content)
-                draft = draft_service.process_turn(
-                    session_id,
-                    request.message,
-                    final_content,
+                evolution_runner.enqueue(
+                    session_id=session_id,
+                    identity_context=identity_context,
                 )
                 if title:
                     session_manager.rename_session(session_id, title)
@@ -94,22 +115,14 @@ async def chat(request: ChatRequest):
                         "title",
                         {"session_id": session_id, "title": title},
                     )
-                if draft:
-                    yield _sse_message(
-                        "draft_generated",
-                        {
-                            "draft_id": draft["draft_id"],
-                            "recommended_action": draft["recommended_action"],
-                            "related_skill": draft["related_skill"],
-                        },
-                    )
                 yield _sse_message(
                     "done",
                     {
                         "session_id": session_id,
                         "content": final_content,
                         "skill_hit": skill_hit,
-                        "draft": draft,
+                        "draft": None,
+                        "evolution_queued": True,
                     },
                 )
 
