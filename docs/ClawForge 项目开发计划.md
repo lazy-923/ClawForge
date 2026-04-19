@@ -294,6 +294,14 @@
 - 为 rollback 预留接口与数据结构
 - 将 merge 动作收口到 `MergerSubAgent` / merger service 的明确边界中
 
+### 当前进展（2026-04-19）
+
+- 已将 merge 升级为结构化 `merge_patch` 输出
+- 已补 patch version 递增与 lineage / merge_history 一致性记录
+- 已增加 rollback 预留字段与 merge-history 查询接口
+- 已补 Phase D 单测，并通过 API smoke 与本地 runner 验证
+- 当前实现仍是 Phase D 首版，后续还可继续向完整 `MergerSubAgent` 和 rollback 能力演进
+
 ### 当前问题
 
 - 当前 merge 更偏“追加内容”

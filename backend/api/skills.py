@@ -18,7 +18,11 @@ async def get_usage(skill_name: str) -> dict[str, int]:
     return registry_service.get_skill_usage(skill_name)
 
 
+@router.get("/skills/{skill_name}/merge-history")
+async def get_merge_history(skill_name: str) -> list[dict[str, object]]:
+    return registry_service.get_skill_merge_history(skill_name)
+
+
 @router.get("/skills/audit/stale")
 async def get_stale_skills() -> list[dict[str, object]]:
     return registry_service.get_stale_skills()
-

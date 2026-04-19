@@ -160,6 +160,15 @@ class ApiSmokeTestCase(unittest.TestCase):
         self.assertIn("# Draft Name", detail_response.json()["content"])
         self.assertIn("# Identity Context", detail_response.json()["content"])
 
+    def test_skill_merge_history_endpoint(self) -> None:
+        response = self.client.get("/api/skills/get_weather/merge-history")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIsInstance(payload, list)
+        if payload:
+            self.assertIn("target_skill", payload[0])
+            self.assertIn("patch_summary", payload[0])
+
 
 if __name__ == "__main__":
     unittest.main()

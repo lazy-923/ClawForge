@@ -419,18 +419,24 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 
 - 仍不是完整的 `JudgeSubAgent`
 - 仍缺少独立回放评估与更丰富的治理样本集
-- merger / versioning 的结构化升级还未开始
+- merger / versioning 仍未升级到完整子智能体编排
 
-## 5.5 Skill Merge / Versioning 还比较初级
+## 5.5 Skill Merge / Versioning 已完成 Phase D 首版
 
-当前 Merge 已经能工作，但更像“把 Draft 追加到 Skill 文件”。
+当前后端已经完成 Phase D 的首版升级：
 
-还缺少更完整的版本治理能力，例如：
+- merge 已不再只是简单字符串追加，而是生成结构化 `merge_patch`
+- merge 结果会更新正式 skill 的标准区块，并记录结构化的 merged notes
+- 已补 patch version 递增规则
+- `merge_history` / `lineage` 已增加版本前后、patch summary 和 rollback 预留字段
+- 已新增 merge-history 查询接口
+- 已补 Phase D 单测，并通过 API smoke 与本地 runner 验证
 
-- 更结构化的 merge patch
-- 更严格的差异管理
-- 回滚机制
-- 更完整的版本查询体验
+但这一部分仍未完全达到最终目标，当前剩余问题主要是：
+
+- 仍不是完整的 `MergerSubAgent`
+- rollback 目前仍是保留位，并未真正执行
+- skill diff / history 浏览体验还不完整
 
 ## 5.6 测试覆盖仍需继续补强
 

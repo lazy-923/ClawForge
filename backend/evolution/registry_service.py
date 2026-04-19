@@ -68,7 +68,15 @@ class RegistryService:
 
     def get_skill_lineage(self, skill_name: str) -> list[dict[str, object]]:
         items = self._read_json(self.lineage_path)
-        return [item for item in items if item["skill"] == skill_name]
+        matching = [item for item in items if item["skill"] == skill_name]
+        matching.sort(key=lambda item: str(item.get("timestamp", "")))
+        return matching
+
+    def get_skill_merge_history(self, skill_name: str) -> list[dict[str, object]]:
+        items = self._read_json(self.merge_history_path)
+        matching = [item for item in items if item["target_skill"] == skill_name]
+        matching.sort(key=lambda item: str(item.get("merged_at", "")))
+        return matching
 
     def get_stale_skills(self) -> list[dict[str, object]]:
         stats = self._read_stats()

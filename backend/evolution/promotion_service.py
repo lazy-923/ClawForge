@@ -80,8 +80,11 @@ class PromotionService:
             {
                 "from_draft": draft_id,
                 "target_skill": result["target_skill"],
+                "from_version": result["old_version"],
+                "to_version": result["new_version"],
                 "merged_at": datetime.now(timezone.utc).isoformat(),
                 "patch_summary": result["patch_summary"],
+                "merge_patch": result["merge_patch"],
             }
         )
         registry_service.append_lineage(
@@ -91,6 +94,8 @@ class PromotionService:
                 "parent_version": result["old_version"],
                 "source_draft": draft_id,
                 "operation": "merge",
+                "patch_summary": result["patch_summary"],
+                "rollback": result["merge_patch"]["rollback"],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
