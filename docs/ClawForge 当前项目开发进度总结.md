@@ -7,14 +7,14 @@
 当前项目的真实状态更接近：
 
 - 后端主链路已经从 Phase 0 / Phase 1 推进到 **Phase 4 附近的 MVP 状态**
-- 前端仍基本处于 **Phase 0 的占位和最小壳阶段**
+- 前端已经完成 **可测试工作台版本**，但仍未达到完整产品版
 - Phase 5 中的部分能力已经提前落地，但整体还未完成
 
 可以概括为：
 
 ```text
 后端原型已成形
-前端工作台尚未补齐
+前端可测试工作台已落地
 核心能力可跑通
 智能化程度和产品完成度仍偏早期
 ```
@@ -96,6 +96,10 @@
 - usage stats 初版
 - lineage 查询
 - stale audit 初版
+- 最小前端工作台联调
+- 前端 Draft 治理入口
+- 前端 SSE 聊天可观察性
+- 前端 Inspector 详情面板
 
 尚未完成：
 
@@ -103,7 +107,7 @@
 - 更可靠的版本演化机制
 - 文档到技能离线提炼
 - Replay 评估
-- 完整前端工作台联调
+- 更成熟的前端产品体验与打磨
 
 ---
 
@@ -203,6 +207,12 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 - 命中结果存档
 - 技能使用次数统计
 
+当前判断：
+
+- 这条链路已经形成首版 MVP
+- 但 skill retrieval 仍主要是规则 / 关键词驱动
+- 尚未完成借鉴 AutoSkill 的 `LlamaIndex hybrid retrieval + selection` 形态
+
 对应实现：
 
 - `backend/gateway/query_rewriter.py`
@@ -269,6 +279,44 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 
 这说明项目核心思路“文件优先”已经进入实际运行状态，而不是停留在设计层。
 
+## 3.8.1 RAG 检索后端现状
+
+当前与 RAG 相关的后端能力已经开始向文档目标收敛：
+
+- `memory` 检索已切换到 `LlamaIndex`
+- `knowledge` 检索已切换到 `LlamaIndex`
+- 已支持向量检索 + BM25 混合召回的本地持久化形态
+
+但需要特别区分：
+
+- 这部分是 Memory / Knowledge RAG
+- 还不等于 Skill Gateway 已完成同等形态的技能检索升级
+
+## 3.9 前端可测试工作台
+
+前端已经不再只是占位页，而是完成了一个能对接当前后端主链路的可测试工作台。
+
+已实现：
+
+- Session 列表与切换
+- Chat 面板
+- 非流式基础联调
+- SSE 流式聊天展示
+- Activated Skills 面板
+- Session Drafts 面板
+- Draft `promote / merge / ignore` 操作
+- Draft Inspector
+- Skill Inspector
+- usage / lineage 展示
+- stale audit 展示
+
+对应实现：
+
+- `frontend/src/app/page.tsx`
+- `frontend/src/app/globals.css`
+
+这意味着当前前端已经可以作为后端能力的可视化测试台使用，而不是只承担展示项目阶段信息的说明页。
+
 ---
 
 ## 4. 当前项目里已经能看到的运行结果
@@ -291,6 +339,7 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 - Skill Gateway 可命中技能
 - Draft 可生成
 - Promote / Merge / Ignore 至少跑通过一轮
+- 前端可以直接驱动会话、聊天、技能命中观察和 Draft 治理
 
 ---
 
@@ -298,21 +347,25 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 
 虽然主链路已经搭起来，但距离文档中的完整产品形态还有明显差距。
 
-## 5.1 前端工作台基本未完成
+## 5.1 前端工作台仍非完整产品版
 
-当前前端只有一个非常轻量的占位页，主要表达“后端优先开发中”。
+当前前端已经具备可测试工作台，但仍然更偏“联调工作台”而不是成熟产品界面。
 
-尚未看到文档中规划的核心工作台能力，例如：
+已具备：
 
-- Activated Skills 面板
-- Draft Skills 列表
-- Skill Governance 面板
-- Inspector 文件查看与编辑
-- 三栏工作台交互
+- 三栏工作台雏形
+- 聊天与会话切换
+- Activated Skills 查看
+- Session Drafts 与治理操作
+- Draft / Skill / stale audit Inspector
 
-对应现状：
+仍然缺少或较弱的部分：
 
-- `frontend/src/app/page.tsx`
+- 更细致的交互打磨
+- 更完整的状态反馈
+- 更成熟的草稿详情浏览体验
+- 更完整的工作台信息结构
+- 前端自动化测试
 
 ## 5.2 Skill Retrieval / Selection 仍然偏规则化
 
@@ -324,10 +377,15 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 
 与设计文档目标相比，还缺少：
 
-- 语义检索
-- 混合排序
+- `LlamaIndex` 驱动的技能检索
+- dense + BM25 混合召回
 - 更强的相关性判断
 - 更可解释的选择逻辑
+
+补充说明：
+
+- `memory / knowledge` 的 RAG 检索后端已开始切到 `LlamaIndex`
+- 真正还没升级完成的是 `Skill Gateway` 的技能检索
 
 ## 5.3 Draft 提取仍然是演示版逻辑
 
@@ -338,6 +396,7 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 - 泛化能力有限
 - 容易误提取
 - 无法真正反映长期交互中的稳定偏好
+- 仍未形成后台异步 `EvolutionAgent -> Extractor/Judge/Merger` 的编排
 
 这部分离 PRD 中的“经验沉淀系统”仍有较大距离。
 
@@ -365,13 +424,14 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 - 前端交互测试
 - 回归测试用例
 
-## 5.6 README 状态描述已落后于真实进度
+## 5.6 README 与部分项目说明需要持续同步
 
-当前根目录 `README.md` 仍写着：
+项目根 README 此前曾停留在 `Phase 0 in progress` 的早期状态，说明文档和实现状态容易出现不同步。随着后续阶段推进，仍需要持续同步：
 
-- `Phase 0 in progress`
-
-但实际仓库代码已经明显超出这一状态。文档说明与代码现状之间已经出现不同步。
+- README 当前状态
+- 前端完成度
+- 可运行方式
+- 后端与前端阶段性能力
 
 ---
 
@@ -385,9 +445,10 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 
 ```text
 项目已经完成后端主链路 MVP
+项目已经具备前端可测试工作台
 但离完整产品化仍有明显距离
-当前最成熟的是后端骨架和文件驱动治理流程
-最薄弱的是前端工作台、检索质量、草稿智能化和测试体系
+当前最成熟的是后端骨架、文件驱动治理流程和前端联调工作台
+最薄弱的是检索质量、草稿智能化、工程测试体系和产品级打磨
 ```
 
 ---
@@ -396,44 +457,52 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 
 若继续按当前文档路线推进，建议优先顺序如下：
 
-### 1. 补齐前端最小工作台
-
-优先实现：
-
-- Activated Skills 展示
-- Draft 列表与详情
-- Promote / Merge / Ignore 操作入口
-
-### 2. 提升 Skill Gateway 质量
+### 1. 把 Skill Gateway 检索升级到 LlamaIndex Hybrid Retrieval
 
 优先增强：
 
 - 更可靠的 Query Rewrite
 - 更合理的 Skill Retrieval
 - 更稳定的 Skill Selection
+- 检索与选择分层
 
-### 3. 重做 Draft Extractor 的抽取逻辑
+### 2. 重做 Draft Extractor，并引入后台 Evolution 子智能体编排
 
 目标应从“关键词触发”升级为：
 
 - 面向多轮对话
 - 可识别 durable / reusable 规则
 - 可减少 one-off 污染
+- 前台响应与后台学习解耦
 
-### 4. 补齐测试体系
+### 3. 升级 Judge / Related Skill Finder，再补齐测试体系
 
 建议至少增加：
 
 - Gateway 单元测试
 - Draft / Governance 集成测试
+- 前端关键交互测试
 - 回归测试样例
 
-### 5. 同步更新 README 与项目说明
+### 4. 打磨前端工作台体验
 
-建议把根目录 README 的状态从“Phase 0 in progress”更新为更接近当前代码状态的描述，避免后续误判项目成熟度。
+优先增强：
+
+- 更清晰的 Draft / Skill 信息组织
+- 更友好的状态与错误反馈
+- 更好的细节交互
+- 更完整的 Inspector 浏览体验
+
+### 5. 持续同步 README 与阶段文档
+
+建议每完成一个较大阶段，都同步更新：
+
+- 根目录 README
+- 当前项目开发进度总结
+- 必要的开发 / 使用说明
 
 ---
 
 ## 8. 一句话总结
 
-ClawForge 当前已经完成了“**后端优先的技能工作台 MVP 骨架**”，核心链路包括聊天、技能激活、草稿生成、基础治理和注册表统计都已落地；但前端工作台、检索质量、智能化抽取和测试体系仍需继续建设。
+ClawForge 当前已经完成了“**后端优先的技能工作台 MVP 骨架 + 前端可测试工作台**”，核心链路包括聊天、技能激活、草稿生成、基础治理、注册表统计以及前端观察与治理入口都已落地；但检索质量、智能化抽取、测试体系和产品级体验仍需继续建设。

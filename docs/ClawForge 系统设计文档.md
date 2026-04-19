@@ -39,6 +39,8 @@ ClawForge 不直接自动修改正式技能库，而是采用：
 
 前台只负责：
 
+- Query Rewrite
+- Skill Retrieval
 - 技能激活
 - 技能注入
 - 对话执行
@@ -48,6 +50,21 @@ ClawForge 不直接自动修改正式技能库，而是采用：
 - 技能草稿生成
 - 技能治理建议
 - 技能版本演化
+- 异步学习调度
+
+### 4. 借鉴 AutoSkill，但保持 ClawForge 本地工作台形态
+
+ClawForge 后续实现将明确借鉴 AutoSkill 的两条主链路：
+
+- 前台 Serving Path：`query rewrite -> hybrid retrieval -> selection -> context injection -> response`
+- 后台 Learning Path：`extract -> related retrieval -> judge -> merge/promote`
+
+但在工程落地上采用更适合当前项目的取舍：
+
+- `gateway` 检索后端统一使用 `LlamaIndex`
+- `evolution` 不复用主聊天 Agent，而是采用后台异步子智能体编排
+- 技能正式库仍以本地 `SKILL.md` 为 source of truth
+- ClawForge 不实现 AutoSkill 的 OpenAI-compatible proxy 形态，而继续以本地工作台为产品中心
 
 ---
 
@@ -103,9 +120,10 @@ backend/skill_registry/
 Skill Gateway 是聊天主链路中的前置层，职责是：
 
 - 改写 skill query
-- 检索 skill
+- 用混合检索召回 skill
 - 选择 skill
 - 构建 skill context
+- 为后台 evolution 提供 retrieval 证据
 
 ## 3.5 Skill Evolution
 
@@ -115,6 +133,17 @@ Skill Evolution 是对话后的异步学习链路，职责是：
 - 检索相似 skill
 - 生成治理建议
 - 触发 promote / merge
+- 记录使用与来源证据
+
+## 3.6 Evolution Agent
+
+ClawForge 的 Evolution 不应由主聊天 Agent 直接承担，而应由后台异步 `EvolutionAgent` 编排。
+
+它至少包含三个职责子模块：
+
+- `ExtractorSubAgent`：从最近多轮对话中提取 durable / reusable 的 candidate draft
+- `JudgeSubAgent`：基于 candidate 与 related skills 判断 `add / merge / ignore`
+- `MergerSubAgent`：在 `merge` 时生成结构化 merge 结果并维护版本演化
 
 ---
 
@@ -133,9 +162,10 @@ Serving Layer
     |- Agent Runtime
     |
 Learning Layer
-    |- Draft Extractor
-    |- Judge
-    |- Merger
+    |- Evolution Agent
+    |  |- Extractor SubAgent
+    |  |- Judge SubAgent
+    |  |- Merger SubAgent
     |- Promotion Service
     |
 Storage Layer
@@ -154,7 +184,7 @@ Storage Layer
 ```text
 user query
 -> query rewrite
--> skill retrieval
+-> llamaindex hybrid skill retrieval
 -> skill selection
 -> prompt injection
 -> agent response
@@ -164,6 +194,7 @@ user query
 
 ```text
 conversation turn end
+-> evolution agent enqueue
 -> draft extraction
 -> related skill retrieval
 -> add/merge/ignore suggestion
@@ -184,13 +215,17 @@ backend/
 │   ├── skill_selector.py
 │   ├── skill_context_builder.py
 │   └── gateway_manager.py
+├── retrieval/
+│   ├── text_matcher.py
+│   └── llamaindex_store.py
 ├── evolution/
 │   ├── draft_extractor.py
 │   ├── related_skill_finder.py
 │   ├── skill_judge.py
 │   ├── skill_merger.py
 │   ├── skill_versioning.py
-│   └── promotion_service.py
+│   ├── promotion_service.py
+│   └── evolution_runner.py
 ├── skill_drafts/
 ├── skill_registry/
 │   ├── skills_index.json
@@ -286,7 +321,7 @@ POST /api/chat
 -> AgentManager.astream()
 -> SSE 返回 token / tool / retrieval / skill_hit
 -> SessionManager 持久化消息
--> 异步触发 DraftExtractor
+-> 异步触发 EvolutionAgent
 ```
 
 ## 7.2 Gateway 详细流程
@@ -307,6 +342,8 @@ POST /api/chat
 - 保留任务锚点
 - 保留风格约束
 - 去掉无关闲聊
+- 解析指代与“补充要求”类追加约束
+- 输出一条独立、可检索、可用于技能召回的 query
 
 ### Step 2：Skill Retrieval
 
@@ -316,13 +353,30 @@ POST /api/chat
 
 检索策略：
 
-- 语义检索
-- 关键词检索
-- 混合排序
+- 使用 `LlamaIndex` 统一承载技能检索
+- Dense semantic retrieval
+- BM25 lexical retrieval
+- Hybrid fusion rerank
+
+索引内容不应只包含 frontmatter，而应覆盖：
+
+- `name`
+- `description`
+- `tags`
+- `triggers`
+- `# Goal`
+- `# Constraints & Style`
+- `# Workflow`
 
 输出：
 
 - top-k skill hits
+
+说明：
+
+- Retrieval 是“召回层”，负责尽量不漏掉候选技能
+- 它不直接决定最终注入结果，仍需经过 selection 过滤
+- top-1 retrieval hit 可作为 evolution 的辅助 identity context
 
 ### Step 3：Skill Selection
 
@@ -330,6 +384,8 @@ POST /api/chat
 
 - 过滤掉弱相关 skill
 - 仅保留最适合当前任务的少量技能
+- 将“召回”与“最终注入”分离
+- 为前端提供更可解释的 hit reason / score 依据
 
 输出：
 
@@ -359,7 +415,10 @@ POST /api/chat
 
 输入：
 
-- 最近一轮或最近数轮对话
+- 最近数轮对话
+- 当前轮 user query
+- 必要的 assistant 响应上下文
+- 可选的 top-1 skill hit identity context
 
 输出：
 
@@ -371,6 +430,12 @@ POST /api/chat
 - 必须 reusable
 - 不要保留 one-off case
 - 不要抄 assistant 自己的临时发挥
+- 用户消息是主证据，assistant 输出只作上下文
+
+实现建议：
+
+- 该模块应升级为后台 `ExtractorSubAgent`
+- 它不应只做关键词映射，而应基于多轮对话进行抽象
 
 ## 8.2 Related Skill Finder
 
@@ -379,6 +444,11 @@ POST /api/chat
 输出：
 
 - top-n related skills
+
+说明：
+
+- 该模块可复用 Gateway 的技能索引能力，但不应直接复用最终 selection 结果
+- 它服务于治理判断，而不是在线回答
 
 ## 8.3 Skill Judge
 
@@ -397,6 +467,11 @@ POST /api/chat
 }
 ```
 
+实现建议：
+
+- 该模块应升级为 `JudgeSubAgent`
+- 判断维度至少包括：job-to-be-done、交付物类型、约束/成功标准、流程/tooling 相似度
+
 ## 8.4 Skill Merger
 
 当 action = merge 时：
@@ -405,6 +480,12 @@ POST /api/chat
 - 生成结构化 merge patch
 - 保留旧 skill 身份
 - 只引入新增且可复用的行为规范
+- 更新 version / lineage / merge history
+
+实现建议：
+
+- 该模块应升级为 `MergerSubAgent`
+- 目标是“版本化合并”，而不是“把草稿内容追加到文件末尾”
 
 ## 8.5 Promotion Service
 
@@ -413,6 +494,26 @@ POST /api/chat
 - 将 Draft Promote 为新 Skill
 - 或执行 Merge
 - 更新索引、版本、lineage 和快照
+
+## 8.6 Evolution Runner
+
+`EvolutionRunner` 负责在对话结束后异步调度：
+
+```text
+chat done
+-> enqueue evolution job
+-> ExtractorSubAgent
+-> Related Skill Finder
+-> JudgeSubAgent
+-> MergerSubAgent / PromotionService
+-> Registry update
+```
+
+要求：
+
+- 不阻塞前台响应延迟
+- 支持 `auto / never / manual` 之类的触发模式扩展
+- 失败时不影响主聊天链路
 
 ---
 
@@ -469,6 +570,11 @@ skill_drafts/
 - retrieved_count
 - selected_count
 - adopted_count
+
+说明：
+
+- 应区分“被召回”和“被真正采用”
+- 后续可据此做 stale skill audit
 
 ### `merge_history.json`
 
@@ -609,6 +715,16 @@ skill_drafts/
 - 快照只保留简要清单
 - 只给主 Agent 注入命中技能的紧凑上下文
 
+## 13.1.1 Gateway 检索后端统一使用 LlamaIndex
+
+后续 Skill Gateway 的检索实现以 `LlamaIndex` 为统一后端：
+
+- Dense retrieval
+- BM25 retrieval
+- Hybrid fusion
+
+不再长期停留在纯规则关键词召回。
+
 ## 13.2 不做完全自动写库
 
 改为：
@@ -616,6 +732,14 @@ skill_drafts/
 - 自动生成草稿
 - 自动给建议
 - 人工确认入库
+
+## 13.2.1 Evolution 不由主聊天 Agent 直接承担
+
+改为：
+
+- 聊天主链路只负责 serving
+- evolution 由后台 `EvolutionAgent` 异步编排
+- 主 Agent 不直接修改正式技能库
 
 ## 13.3 不做独立代理产品
 
