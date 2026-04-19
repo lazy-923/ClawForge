@@ -53,7 +53,8 @@ CANONICAL_FORMS = {
     "translating": "translate",
 }
 
-BM25_TOKEN_PATTERN = re.compile(r"[\u4e00-\u9fff]|[A-Za-z0-9_]+")
+BM25_TOKEN_PATTERN_TEXT = r"[\u4e00-\u9fff]|[A-Za-z0-9_]+"
+BM25_TOKEN_PATTERN = re.compile(BM25_TOKEN_PATTERN_TEXT)
 
 
 def normalize_token(token: str) -> str:

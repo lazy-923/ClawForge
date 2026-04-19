@@ -13,6 +13,7 @@ from backend.api.sessions import router as sessions_router
 from backend.api.skills import router as skills_router
 from backend.config import settings
 from backend.graph.agent import agent_manager
+from backend.gateway.skill_indexer import skill_indexer
 from backend.graph.knowledge_indexer import knowledge_indexer
 from backend.graph.memory_indexer import memory_indexer
 from backend.tools.skills_scanner import scan_skills
@@ -21,6 +22,7 @@ from backend.tools.skills_scanner import scan_skills
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     scan_skills()
+    skill_indexer.rebuild_index()
     memory_indexer.rebuild_index()
     knowledge_indexer.rebuild_index()
     await agent_manager.initialize()

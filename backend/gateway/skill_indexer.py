@@ -4,39 +4,55 @@ import hashlib
 import json
 import shutil
 from pathlib import Path
-from typing import Any
 
-from llama_index.core import SimpleDirectoryReader
 from llama_index.core import StorageContext
 from llama_index.core import VectorStoreIndex
 from llama_index.core import load_index_from_storage
 from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.schema import Document
 from llama_index.core.schema import NodeWithScore
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.retrievers.bm25 import BM25Retriever
 
 from backend.config import settings
 from backend.retrieval.text_matcher import BM25_TOKEN_PATTERN_TEXT
-from backend.retrieval.text_matcher import tokenize_for_bm25
+from backend.retrieval.text_matcher import collect_terms
+from backend.retrieval.text_matcher import extract_terms
+from backend.tools.skills_scanner import list_skill_metadata
 
 
-class LlamaIndexStore:
-    def __init__(
-        self,
-        *,
-        source_name: str,
-        persist_dir: Path,
-        input_dir: Path | None = None,
-        input_file: Path | None = None,
-        recursive: bool = False,
-        required_exts: list[str] | None = None,
-    ) -> None:
-        self.source_name = source_name
-        self.persist_dir = persist_dir
-        self.input_dir = input_dir
-        self.input_file = input_file
-        self.recursive = recursive
-        self.required_exts = required_exts or []
+def _build_skill_document(skill: dict[str, object]) -> Document:
+    constraints = skill.get("constraints", [])
+    workflow = skill.get("workflow", [])
+    lines = [
+        f"Skill Name: {skill['name']}",
+        f"Description: {skill['description']}",
+        f"Tags: {', '.join(str(item) for item in skill.get('tags', []))}",
+        f"Triggers: {', '.join(str(item) for item in skill.get('triggers', []))}",
+        "",
+        "# Goal",
+        str(skill.get("goal", "")),
+        "",
+        "# Constraints & Style",
+    ]
+    lines.extend(f"- {item}" for item in constraints)
+    lines.extend(["", "# Workflow"])
+    lines.extend(f"{index}. {item}" for index, item in enumerate(workflow, start=1))
+    text = "\n".join(lines).strip()
+    return Document(
+        text=text,
+        metadata={
+            "file_path": skill["path"],
+            "skill_name": skill["name"],
+            "description": skill["description"],
+            "location": skill["location"],
+        },
+    )
+
+
+class SkillIndexer:
+    def __init__(self) -> None:
+        self.persist_dir = settings.skill_index_dir
         self.vector_dir = self.persist_dir / "vector"
         self.bm25_dir = self.persist_dir / "bm25"
         self.state_path = self.persist_dir / "state.json"
@@ -44,16 +60,17 @@ class LlamaIndexStore:
         self._bm25_retriever: BM25Retriever | None = None
 
     def rebuild_index(self) -> None:
-        documents = self._load_documents()
+        skills = list_skill_metadata()
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         self._vector_index = None
         self._bm25_retriever = None
 
-        if not documents:
+        if not skills:
             self._clear_persisted_indexes()
             self._write_state({"fingerprint": self._compute_fingerprint(), "vector_enabled": False})
             return
 
+        documents = [_build_skill_document(skill) for skill in skills]
         splitter = SentenceSplitter(
             chunk_size=settings.rag_chunk_size,
             chunk_overlap=settings.rag_chunk_overlap,
@@ -84,16 +101,16 @@ class LlamaIndexStore:
             }
         )
 
-    def retrieve(self, query: str, top_k: int = 3) -> list[dict[str, object]]:
-        if not query.strip() or not tokenize_for_bm25(query):
+    def retrieve(self, query: str, top_k: int = 5) -> list[dict[str, object]]:
+        query_terms = set(extract_terms(query))
+        if not query_terms:
             return []
 
         self._maybe_rebuild()
-
-        bm25_hits = self._retrieve_bm25(query)
         vector_hits = self._retrieve_vector(query)
-        merged = self._merge_hits(vector_hits, bm25_hits)
-        return merged[:top_k]
+        bm25_hits = self._retrieve_bm25(query)
+        hits = self._merge_hits(query_terms, vector_hits, bm25_hits)
+        return hits[:top_k]
 
     def _maybe_rebuild(self) -> None:
         current_fingerprint = self._compute_fingerprint()
@@ -131,12 +148,13 @@ class LlamaIndexStore:
             return []
         self._bm25_retriever.similarity_top_k = max(
             1,
-            min(settings.rag_bm25_top_k, len(self._discover_files()) or 1),
+            min(settings.rag_bm25_top_k, len(list_skill_metadata()) or 1),
         )
         return self._bm25_retriever.retrieve(query)
 
     def _merge_hits(
         self,
+        query_terms: set[str],
         vector_hits: list[NodeWithScore],
         bm25_hits: list[NodeWithScore],
     ) -> list[dict[str, object]]:
@@ -144,123 +162,87 @@ class LlamaIndexStore:
 
         for rank, hit in enumerate(vector_hits):
             key = self._node_key(hit)
-            entry = merged.setdefault(key, self._make_hit_payload(hit))
+            entry = merged.setdefault(key, self._make_payload(hit, query_terms))
             entry["score"] = float(entry["score"]) + self._rank_score(rank)
             entry["vector_score"] = hit.score
-            modes = list(entry["retrieval_modes"])
-            if "vector" not in modes:
-                modes.append("vector")
-            entry["retrieval_modes"] = modes
+            entry["retrieval_modes"].add("vector")
 
         for rank, hit in enumerate(bm25_hits):
             key = self._node_key(hit)
-            entry = merged.setdefault(key, self._make_hit_payload(hit))
+            entry = merged.setdefault(key, self._make_payload(hit, query_terms))
             entry["score"] = float(entry["score"]) + self._rank_score(rank)
             entry["bm25_score"] = hit.score
-            modes = list(entry["retrieval_modes"])
-            if "bm25" not in modes:
-                modes.append("bm25")
-            entry["retrieval_modes"] = modes
+            entry["retrieval_modes"].add("bm25")
 
         results = list(merged.values())
         results.sort(
             key=lambda item: (
                 float(item["score"]),
-                str(item["source"]),
+                len(item["matched_terms"]),
+                str(item["name"]),
             ),
             reverse=True,
         )
-
         for item in results:
-            item["retrieval_mode"] = (
-                "hybrid" if len(item["retrieval_modes"]) > 1 else str(item["retrieval_modes"][0])
-            )
-            item.pop("retrieval_modes", None)
-
+            modes = sorted(item["retrieval_modes"])
+            item["retrieval_mode"] = "hybrid" if len(modes) > 1 else modes[0]
+            item["retrieval_modes"] = modes
         return results
 
-    def _make_hit_payload(self, hit: NodeWithScore) -> dict[str, object]:
-        text = self._node_text(hit)
-        source = self._node_source(hit)
+    def _make_payload(self, hit: NodeWithScore, query_terms: set[str]) -> dict[str, object]:
+        skill = self._resolve_skill(hit)
+        hit_fields = self._collect_hit_fields(skill, query_terms)
+        matched_terms = sorted({term for _, terms in hit_fields for term in terms})
+        matched_fields = [field for field, terms in hit_fields if terms]
         return {
-            "text": text,
+            **skill,
             "score": 0.0,
-            "source": source,
-            "preview": text[:300],
+            "matched_terms": matched_terms,
+            "matched_fields": matched_fields,
             "vector_score": None,
             "bm25_score": None,
-            "retrieval_modes": [],
+            "retrieval_modes": set(),
         }
 
-    def _node_key(self, hit: NodeWithScore) -> str:
-        source = self._node_source(hit)
-        text = self._node_text(hit)
-        return f"{source}:{hashlib.md5(text.encode('utf-8')).hexdigest()}"
+    def _collect_hit_fields(
+        self,
+        skill: dict[str, object],
+        query_terms: set[str],
+    ) -> list[tuple[str, list[str]]]:
+        fields = [
+            ("name", collect_terms([skill["name"]])),
+            ("description", collect_terms([skill["description"]])),
+            ("tags", collect_terms(skill.get("tags", []))),
+            ("triggers", collect_terms(skill.get("triggers", []))),
+            ("goal", collect_terms([skill.get("goal", "")])),
+            ("constraints", collect_terms(skill.get("constraints", []))),
+            ("workflow", collect_terms(skill.get("workflow", []))),
+        ]
+        return [
+            (field_name, sorted(query_terms & field_terms))
+            for field_name, field_terms in fields
+            if query_terms & field_terms
+        ]
 
-    def _node_text(self, hit: NodeWithScore) -> str:
-        text = getattr(hit.node, "text", "")
-        return str(text).strip()
-
-    def _node_source(self, hit: NodeWithScore) -> str:
+    def _resolve_skill(self, hit: NodeWithScore) -> dict[str, object]:
         metadata = getattr(hit.node, "metadata", {}) or {}
-        raw_path = metadata.get("file_path") or metadata.get("source") or self.source_name
-        path = Path(str(raw_path))
-        if not path.is_absolute():
-            return str(raw_path)
-        try:
-            return str(path.resolve().relative_to(settings.project_root))
-        except ValueError:
-            return str(raw_path)
+        skill_name = str(metadata.get("skill_name", ""))
+        for skill in list_skill_metadata():
+            if str(skill["name"]) == skill_name:
+                return skill
+        raise KeyError(f"Skill metadata not found: {skill_name}")
+
+    def _node_key(self, hit: NodeWithScore) -> str:
+        metadata = getattr(hit.node, "metadata", {}) or {}
+        skill_name = str(metadata.get("skill_name", ""))
+        return skill_name or hashlib.md5(str(hit.node.text).encode("utf-8")).hexdigest()
 
     def _rank_score(self, rank: int) -> float:
         return 1.0 / float(rank + 1)
 
-    def _load_documents(self) -> list[Any]:
-        files = self._discover_files()
-        if not files:
-            return []
-
-        reader = SimpleDirectoryReader(
-            input_files=[str(path) for path in files],
-            filename_as_id=True,
-            required_exts=self.required_exts or None,
-            file_metadata=self._file_metadata,
-            raise_on_error=False,
-        )
-        return [doc for doc in reader.load_data() if str(getattr(doc, "text", "")).strip()]
-
-    def _discover_files(self) -> list[Path]:
-        if self.input_file is not None:
-            return [self.input_file] if self.input_file.exists() else []
-
-        if self.input_dir is None or not self.input_dir.exists():
-            return []
-
-        pattern = "**/*" if self.recursive else "*"
-        paths = [path for path in self.input_dir.glob(pattern) if path.is_file()]
-        if not self.required_exts:
-            return sorted(paths)
-        allowed = {suffix.lower() for suffix in self.required_exts}
-        return sorted(path for path in paths if path.suffix.lower() in allowed)
-
-    def _file_metadata(self, path_str: str) -> dict[str, object]:
-        path = Path(path_str)
-        try:
-            source = str(path.resolve().relative_to(settings.project_root))
-        except ValueError:
-            source = str(path)
-        return {
-            "file_path": source,
-            "source": self.source_name,
-        }
-
     def _compute_fingerprint(self) -> str:
-        files = self._discover_files()
-        if not files:
-            return ""
-
         digest = hashlib.sha256()
-        for path in files:
+        for path in sorted(settings.skills_dir.glob("*/SKILL.md")):
             stat = path.stat()
             digest.update(str(path.resolve()).encode("utf-8"))
             digest.update(str(stat.st_mtime_ns).encode("utf-8"))
@@ -292,3 +274,6 @@ class LlamaIndexStore:
         for path in [self.vector_dir, self.bm25_dir]:
             if path.exists():
                 shutil.rmtree(path, ignore_errors=True)
+
+
+skill_indexer = SkillIndexer()

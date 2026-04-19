@@ -65,6 +65,7 @@ class Settings:
     usage_stats_path: Path = skill_registry_dir / "usage_stats.json"
     memory_index_dir: Path = storage_dir / "memory_index"
     knowledge_index_dir: Path = storage_dir / "knowledge_index"
+    skill_index_dir: Path = storage_dir / "skill_index"
 
     @property
     def llm_is_configured(self) -> bool:

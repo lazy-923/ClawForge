@@ -44,6 +44,10 @@ class RetrievalQualityTestCase(unittest.TestCase):
         self.assertGreater(len(hits), 0)
         self.assertEqual(hits[0]["name"], "professional_rewrite")
         self.assertNotIn("the", hits[0]["matched_terms"])
+        self.assertTrue(
+            any(field in {"name", "description", "triggers", "goal"} for field in hits[0]["matched_fields"])
+        )
+        self.assertIn(hits[0]["retrieval_mode"], {"bm25", "vector", "hybrid"})
 
     def test_retrieve_skills_prioritizes_weather_skill(self) -> None:
         hits = retrieve_skills("check weather forecast for shanghai")
@@ -51,6 +55,9 @@ class RetrievalQualityTestCase(unittest.TestCase):
         self.assertGreater(len(hits), 0)
         self.assertEqual(hits[0]["name"], "get_weather")
         self.assertIn("weather", hits[0]["matched_terms"])
+        self.assertTrue(
+            any(field in {"description", "triggers", "goal", "workflow"} for field in hits[0]["matched_fields"])
+        )
 
     def test_related_skill_finder_does_not_return_weather_for_rewrite(self) -> None:
         hits = find_related_skills(
@@ -61,6 +68,7 @@ class RetrievalQualityTestCase(unittest.TestCase):
         self.assertGreater(len(hits), 0)
         self.assertEqual(hits[0]["name"], "professional_rewrite")
         self.assertNotIn("the", hits[0]["matched_terms"])
+        self.assertIn(hits[0]["retrieval_mode"], {"bm25", "vector", "hybrid"})
 
     def test_memory_retrieval_ignores_stop_word_only_query(self) -> None:
         temp_dir = settings.storage_dir / f"retrieval_test_{uuid.uuid4().hex}"

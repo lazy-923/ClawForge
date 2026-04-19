@@ -9,7 +9,8 @@ def build_skill_context(skills: list[dict[str, object]]) -> str:
     for skill in skills:
         lines.append(f"- {skill['name']}")
         lines.append(f"  description: {skill['description']}")
+        if skill.get("goal"):
+            lines.append(f"  goal: {skill['goal']}")
         if skill.get("reason"):
             lines.append(f"  reason: {skill['reason']}")
     return "\n".join(lines)
-

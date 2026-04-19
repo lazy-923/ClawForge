@@ -6,6 +6,7 @@ from backend.config import settings
 from backend.evolution.draft_service import draft_service
 from backend.evolution.registry_service import registry_service
 from backend.evolution.skill_merger import merge_draft_into_skill
+from backend.gateway.skill_indexer import skill_indexer
 from backend.tools.skills_scanner import scan_skills
 
 
@@ -35,6 +36,7 @@ class PromotionService:
             target_skill=skill_name,
         )
         scan_skills()
+        skill_indexer.rebuild_index()
         registry_service.refresh_skills_index()
         registry_service.increment_usage([skill_name], "adopted_count")
         registry_service.append_lineage(
@@ -71,6 +73,7 @@ class PromotionService:
             target_skill=str(target),
         )
         scan_skills()
+        skill_indexer.rebuild_index()
         registry_service.refresh_skills_index()
         registry_service.increment_usage([str(result["target_skill"])], "adopted_count")
         registry_service.append_merge_history(
