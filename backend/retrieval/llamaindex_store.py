@@ -20,23 +20,9 @@ from backend.retrieval.text_matcher import BM25_TOKEN_PATTERN_TEXT
 from backend.retrieval.text_matcher import tokenize_for_bm25
 
 
-class LlamaIndexStore:
-    def __init__(
-        self,
-        *,
-        source_name: str,
-        persist_dir: Path,
-        input_dir: Path | None = None,
-        input_file: Path | None = None,
-        recursive: bool = False,
-        required_exts: list[str] | None = None,
-    ) -> None:
-        self.source_name = source_name
+class BaseHybridIndexStore:
+    def __init__(self, *, persist_dir: Path) -> None:
         self.persist_dir = persist_dir
-        self.input_dir = input_dir
-        self.input_file = input_file
-        self.recursive = recursive
-        self.required_exts = required_exts or []
         self.vector_dir = self.persist_dir / "vector"
         self.bm25_dir = self.persist_dir / "bm25"
         self.state_path = self.persist_dir / "state.json"
@@ -85,15 +71,22 @@ class LlamaIndexStore:
         )
 
     def retrieve(self, query: str, top_k: int = 3) -> list[dict[str, object]]:
-        if not query.strip() or not tokenize_for_bm25(query):
+        if self._should_skip_query(query):
             return []
 
+        query_context = self._build_query_context(query)
         self._maybe_rebuild()
 
         bm25_hits = self._retrieve_bm25(query)
         vector_hits = self._retrieve_vector(query)
-        merged = self._merge_hits(vector_hits, bm25_hits)
+        merged = self._merge_hits(query_context, vector_hits, bm25_hits)
         return merged[:top_k]
+
+    def _build_query_context(self, query: str) -> object:
+        return query
+
+    def _should_skip_query(self, query: str) -> bool:
+        return not query.strip() or not tokenize_for_bm25(query)
 
     def _maybe_rebuild(self) -> None:
         current_fingerprint = self._compute_fingerprint()
@@ -131,12 +124,16 @@ class LlamaIndexStore:
             return []
         self._bm25_retriever.similarity_top_k = max(
             1,
-            min(settings.rag_bm25_top_k, len(self._discover_files()) or 1),
+            min(settings.rag_bm25_top_k, self._bm25_corpus_size()),
         )
         return self._bm25_retriever.retrieve(query)
 
+    def _bm25_corpus_size(self) -> int:
+        return 1
+
     def _merge_hits(
         self,
+        query_context: object,
         vector_hits: list[NodeWithScore],
         bm25_hits: list[NodeWithScore],
     ) -> list[dict[str, object]]:
@@ -144,25 +141,35 @@ class LlamaIndexStore:
 
         for rank, hit in enumerate(vector_hits):
             key = self._node_key(hit)
-            entry = merged.setdefault(key, self._make_hit_payload(hit))
-            entry["score"] = float(entry["score"]) + self._rank_score(rank)
-            entry["vector_score"] = hit.score
-            modes = list(entry["retrieval_modes"])
-            if "vector" not in modes:
-                modes.append("vector")
-            entry["retrieval_modes"] = modes
+            entry = merged.setdefault(key, self._make_hit_payload(hit, query_context))
+            self._update_hit(entry, hit, rank, retrieval_mode="vector")
 
         for rank, hit in enumerate(bm25_hits):
             key = self._node_key(hit)
-            entry = merged.setdefault(key, self._make_hit_payload(hit))
-            entry["score"] = float(entry["score"]) + self._rank_score(rank)
-            entry["bm25_score"] = hit.score
-            modes = list(entry["retrieval_modes"])
-            if "bm25" not in modes:
-                modes.append("bm25")
-            entry["retrieval_modes"] = modes
+            entry = merged.setdefault(key, self._make_hit_payload(hit, query_context))
+            self._update_hit(entry, hit, rank, retrieval_mode="bm25")
 
         results = list(merged.values())
+        self._sort_results(results)
+        for item in results:
+            self._finalize_hit(item)
+        return results
+
+    def _update_hit(
+        self,
+        entry: dict[str, object],
+        hit: NodeWithScore,
+        rank: int,
+        *,
+        retrieval_mode: str,
+    ) -> None:
+        entry["score"] = float(entry["score"]) + self._rank_score(rank)
+        entry[f"{retrieval_mode}_score"] = hit.score
+        retrieval_modes = entry.setdefault("retrieval_modes", set())
+        if isinstance(retrieval_modes, set):
+            retrieval_modes.add(retrieval_mode)
+
+    def _sort_results(self, results: list[dict[str, object]]) -> None:
         results.sort(
             key=lambda item: (
                 float(item["score"]),
@@ -171,15 +178,79 @@ class LlamaIndexStore:
             reverse=True,
         )
 
-        for item in results:
-            item["retrieval_mode"] = (
-                "hybrid" if len(item["retrieval_modes"]) > 1 else str(item["retrieval_modes"][0])
-            )
-            item.pop("retrieval_modes", None)
+    def _finalize_hit(self, item: dict[str, object]) -> None:
+        retrieval_modes = item.get("retrieval_modes", set())
+        if isinstance(retrieval_modes, set):
+            modes = sorted(retrieval_modes)
+        else:
+            modes = sorted(str(mode) for mode in retrieval_modes)
+        item["retrieval_mode"] = "hybrid" if len(modes) > 1 else (modes[0] if modes else "bm25")
+        item.pop("retrieval_modes", None)
 
-        return results
+    def _rank_score(self, rank: int) -> float:
+        return 1.0 / float(rank + 1)
 
-    def _make_hit_payload(self, hit: NodeWithScore) -> dict[str, object]:
+    def _build_embed_model(self) -> OpenAIEmbedding | None:
+        if not settings.embedding_is_configured:
+            return None
+        return OpenAIEmbedding(
+            model=settings.embedding_model,
+            api_key=settings.embedding_api_key,
+            api_base=settings.embedding_base_url,
+        )
+
+    def _read_state(self) -> dict[str, object]:
+        if not self.state_path.exists():
+            return {}
+        return json.loads(self.state_path.read_text(encoding="utf-8"))
+
+    def _write_state(self, payload: dict[str, object]) -> None:
+        self.persist_dir.mkdir(parents=True, exist_ok=True)
+        self.state_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _clear_persisted_indexes(self) -> None:
+        for path in [self.vector_dir, self.bm25_dir]:
+            if path.exists():
+                shutil.rmtree(path, ignore_errors=True)
+
+    def _load_documents(self) -> list[Any]:
+        raise NotImplementedError
+
+    def _compute_fingerprint(self) -> str:
+        raise NotImplementedError
+
+    def _make_hit_payload(self, hit: NodeWithScore, query_context: object) -> dict[str, object]:
+        raise NotImplementedError
+
+    def _node_key(self, hit: NodeWithScore) -> str:
+        raise NotImplementedError
+
+
+class LlamaIndexStore(BaseHybridIndexStore):
+    def __init__(
+        self,
+        *,
+        source_name: str,
+        persist_dir: Path,
+        input_dir: Path | None = None,
+        input_file: Path | None = None,
+        recursive: bool = False,
+        required_exts: list[str] | None = None,
+    ) -> None:
+        super().__init__(persist_dir=persist_dir)
+        self.source_name = source_name
+        self.input_dir = input_dir
+        self.input_file = input_file
+        self.recursive = recursive
+        self.required_exts = required_exts or []
+
+    def _bm25_corpus_size(self) -> int:
+        return max(1, len(self._discover_files()))
+
+    def _make_hit_payload(self, hit: NodeWithScore, query_context: object) -> dict[str, object]:
         text = self._node_text(hit)
         source = self._node_source(hit)
         return {
@@ -189,7 +260,7 @@ class LlamaIndexStore:
             "preview": text[:300],
             "vector_score": None,
             "bm25_score": None,
-            "retrieval_modes": [],
+            "retrieval_modes": set(),
         }
 
     def _node_key(self, hit: NodeWithScore) -> str:
@@ -211,9 +282,6 @@ class LlamaIndexStore:
             return str(path.resolve().relative_to(settings.project_root))
         except ValueError:
             return str(raw_path)
-
-    def _rank_score(self, rank: int) -> float:
-        return 1.0 / float(rank + 1)
 
     def _load_documents(self) -> list[Any]:
         files = self._discover_files()
@@ -266,29 +334,3 @@ class LlamaIndexStore:
             digest.update(str(stat.st_mtime_ns).encode("utf-8"))
             digest.update(str(stat.st_size).encode("utf-8"))
         return digest.hexdigest()
-
-    def _build_embed_model(self) -> OpenAIEmbedding | None:
-        if not settings.embedding_is_configured:
-            return None
-        return OpenAIEmbedding(
-            model=settings.embedding_model,
-            api_key=settings.embedding_api_key,
-            api_base=settings.embedding_base_url,
-        )
-
-    def _read_state(self) -> dict[str, object]:
-        if not self.state_path.exists():
-            return {}
-        return json.loads(self.state_path.read_text(encoding="utf-8"))
-
-    def _write_state(self, payload: dict[str, object]) -> None:
-        self.persist_dir.mkdir(parents=True, exist_ok=True)
-        self.state_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-    def _clear_persisted_indexes(self) -> None:
-        for path in [self.vector_dir, self.bm25_dir]:
-            if path.exists():
-                shutil.rmtree(path, ignore_errors=True)
