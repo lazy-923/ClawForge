@@ -402,10 +402,26 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 
 - 抽取仍是启发式规则驱动，还不是完整的 `ExtractorSubAgent`
 - durable / reusable / one-off 的判断仍偏轻量
-- related skill / judge / merger 仍未升级到独立子智能体编排
+- merger 仍未升级到独立子智能体编排
 - 与完整的 evolution 回放、评估和治理质量提升相比仍有差距
 
-## 5.4 Skill Merge / Versioning 还比较初级
+## 5.4 Judge / Related Skill Finder 已完成 Phase C 首版
+
+当前后端已经完成 Phase C 的首版升级：
+
+- related skill 不再只是简单复用 retrieval 结果，而是增加了面向治理的相似度视图
+- 已细化 job-to-be-done、constraints、workflow 等维度的相似度计算
+- judge 已从简单 score 阈值升级为 `add / merge / ignore` 的综合判断逻辑
+- draft 中已保留更可解释的 related skill 指标与 judge reason
+- 已补 governance 单测，并通过 API smoke 与本地 runner 验证
+
+但这一部分仍未完全达到最终目标，当前剩余问题主要是：
+
+- 仍不是完整的 `JudgeSubAgent`
+- 仍缺少独立回放评估与更丰富的治理样本集
+- merger / versioning 的结构化升级还未开始
+
+## 5.5 Skill Merge / Versioning 还比较初级
 
 当前 Merge 已经能工作，但更像“把 Draft 追加到 Skill 文件”。
 
@@ -416,7 +432,7 @@ Skill Gateway 已经不是规划中的空模块，而是能实际参与聊天流
 - 回滚机制
 - 更完整的版本查询体验
 
-## 5.5 测试覆盖较少
+## 5.6 测试覆盖仍需继续补强
 
 当前测试只有一个 smoke test 文件：
 

@@ -42,8 +42,22 @@ class DraftService:
         if candidate is None:
             return None
 
-        related_skills = find_related_skills(candidate.name, candidate.goal)
-        judgment = judge_draft(related_skills)
+        draft_input = {
+            "name": candidate.name,
+            "description": candidate.description,
+            "goal": candidate.goal,
+            "constraints": candidate.constraints,
+            "workflow": candidate.workflow,
+            "confidence": candidate.confidence,
+        }
+        related_skills = find_related_skills(
+            candidate.name,
+            candidate.goal,
+            candidate_description=candidate.description,
+            candidate_constraints=candidate.constraints,
+            candidate_workflow=candidate.workflow,
+        )
+        judgment = judge_draft(draft_input, related_skills)
         draft_id = f"draft_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:6]}"
 
         evidence_messages = [

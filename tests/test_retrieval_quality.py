@@ -64,12 +64,23 @@ class RetrievalQualityTestCase(unittest.TestCase):
         hits = find_related_skills(
             "professional_rewrite",
             "Rewrite the user's source text into a clearer and more professional form.",
+            candidate_description="Rewrite text in a more professional and concise style.",
+            candidate_constraints=[
+                "Preserve the original meaning.",
+                "Avoid exaggerated wording.",
+            ],
+            candidate_workflow=[
+                "Identify the target audience.",
+                "Keep key facts.",
+                "Improve clarity and tone.",
+            ],
         )
 
         self.assertGreater(len(hits), 0)
         self.assertEqual(hits[0]["name"], "professional_rewrite")
         self.assertNotIn("the", hits[0]["matched_terms"])
-        self.assertIn(hits[0]["retrieval_mode"], {"bm25", "vector", "hybrid"})
+        self.assertIn(hits[0]["retrieval_mode"], {"bm25", "vector", "hybrid", "governance-only"})
+        self.assertGreaterEqual(float(hits[0]["governance_score"]), 0.7)
 
     def test_memory_retrieval_ignores_stop_word_only_query(self) -> None:
         temp_dir = settings.storage_dir / f"retrieval_test_{uuid.uuid4().hex}"

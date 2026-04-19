@@ -258,6 +258,13 @@
 - 将 judge 从简单阈值判断升级为独立治理判断模块
 - 增强 judge 的 reason 质量
 
+### 当前进展（2026-04-19）
+
+- 已为 related skill 增加面向治理的相似度视图
+- 已将 judge 升级为综合 job / constraints / workflow / retrieval evidence 的判断逻辑
+- 已补 Phase C 单测，并通过 retrieval、API smoke 和本地 runner 验证
+- 当前实现仍是 Phase C 首版，后续还可继续向完整 `JudgeSubAgent` 演进
+
 ### 当前问题
 
 - 当前 related skill 基本复用 retrieval
