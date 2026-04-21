@@ -1,496 +1,440 @@
-# ClawForge 项目开发计划
+# ClawForge 开发计划
 
-## 1. 文档目标
+## 1. 这份计划解决什么问题
 
-本文档用于把 ClawForge 从“当前可运行 MVP”继续推进到“更完整、更稳定、更接近成品”的开发阶段。
+这不是对旧阶段文档的机械续写，而是一份基于 **当前代码现状**、**PRD 目标** 和 **系统设计约束** 重新整理的执行计划。
 
-它重点回答四个问题：
+它服务于三个目标：
 
-1. 当前项目已经做到哪里
-2. 距离目标产品还差什么
-3. 后续开发应该按什么顺序推进
-4. 每个阶段完成后如何验收
+1. 明确 ClawForge 现在已经做到了什么
+2. 明确接下来真正值得做的开发主线
+3. 给后续每一轮开发提供可执行、可验收、可提交的节奏
 
 ---
 
-## 2. 当前项目状态
+## 2. 当前项目判断
 
-结合当前仓库代码、阶段性提交记录以及 `docs/` 下的相关文档，项目已不处于纯文档或纯脚手架阶段，而是进入了 **MVP 已成形、质量与产品化继续推进** 的状态。
-
-### 2.1 已完成的部分
-
-后端已完成：
-
-- 会话与聊天主链路
-- Prompt 文件组装
-- Skill Gateway 基础链路
-- Skill Draft 生成
-- Promote / Merge / Ignore 治理闭环
-- Skill Registry / usage / lineage / stale audit
-- 本地文件落盘
-- 本地测试脚本与基础 smoke test
-
-前端已完成：
-
-- Session 列表与切换
-- Chat 面板
-- SSE 流式消息展示
-- Activated Skills 面板
-- Session Drafts 列表
-- Draft 治理按钮
-- Draft / Skill Inspector
-- usage / lineage / stale audit 展示
-
-### 2.2 当前仍明显属于 MVP 的部分
-
-当前仍偏 MVP 的核心模块：
-
-- Skill Gateway 检索质量
-- Memory 检索质量
-- Draft Extractor 抽取质量
-- Related Skill Finder / Skill Judge 判断质量
-- Skill Merge / Versioning 的结构化程度
-- 完整测试体系
-- 前端产品级交互与打磨
-
-### 2.3 当前开发判断
-
-项目当前更适合定义为：
+结合当前仓库代码与文档，ClawForge 现在不是“从零开始”，也不是“接近成品”，而是处于下面这个状态：
 
 ```text
-后端主链路 MVP 已完成
-前端可测试工作台已完成
-系统已具备联调与演示能力
-但距离成品仍需继续补齐质量、稳定性和体验
+后端主链路已跑通
+Skill Gateway 与 Skill Evolution 已有首版实现
+治理闭环与文件落盘已成形
+前端已有可测试工作台
+但系统整体仍停留在 MVP 到内测版之间
 ```
 
----
-
-## 3. 本阶段开发总目标
-
-接下来的开发目标不再是“把模块搭出来”，而是分阶段把项目从 MVP 拉向更完整的产品形态。
-
-本阶段总目标分为四类：
-
-### 3.1 效果目标
-
-- 提高 Skill Gateway 命中质量
-- 提高 Draft 提取与治理判断质量
-- 降低 stop words、误召回、误 merge 等问题
-- 让 Gateway 与 Evolution 更接近 AutoSkill 的主链路设计
-
-### 3.2 工程目标
-
-- 建立更可靠的回归测试体系
-- 提升后端模块间的一致性
-- 降低测试过程和运行过程中的临时状态污染
-- 统一 RAG / Skill Retrieval 的后端边界与可维护性
-
-### 3.3 产品目标
-
-- 把前端从“联调工作台”继续推进到“更成熟的工作台”
-- 增强可观察性、可解释性、可治理性
-
-### 3.4 发布目标
-
-- 形成一个可持续演进的本地单用户 MVP 内测版
-- 为后续真正的“成品版”打下稳定基础
+换句话说，项目已经跨过了“能不能做出来”的阶段，进入了“怎么把它做稳、做准、做得可持续演进”的阶段。
 
 ---
 
-## 4. 总体开发原则
+## 3. 当前代码基线
 
-### 4.1 继续坚持后端质量优先
+## 3.1 已经完成的部分
 
-前端已经能够驱动和观察主链路，因此后续优先级要回到：
+当前仓库已经具备以下真实能力，而不是文档层面的规划：
 
-- 检索质量
-- 草稿质量
-- 治理质量
-- 测试质量
+- FastAPI 后端主应用、路由和生命周期初始化
+- 聊天主链路、会话持久化、SSE 输出
+- Prompt 文件组装体系
+- Skill Gateway：rewrite、retrieval、selection、context injection、last-hit
+- Skill Evolution：draft extraction、related skill finding、judge、promote / merge / ignore
+- Skill Registry：skills index、draft index、usage、merge history、lineage
+- 文件优先的本地工件落盘
+- 基础测试与本地验证脚本
+- 前端联调工作台
 
-其中两个明确方向是：
+对应的主要实现模块包括：
 
-- Skill Gateway 逐步对齐 AutoSkill 的 `rewrite -> hybrid retrieve -> selection -> inject`
-- Skill Evolution 逐步对齐 AutoSkill 的异步 `extract -> judge -> merge`
+- `backend/api/`
+- `backend/graph/`
+- `backend/gateway/`
+- `backend/evolution/`
+- `backend/retrieval/`
+- `tests/`
 
-### 4.2 所有阶段都要有验收标准
+## 3.2 当前最重要的事实
 
-每个较大阶段必须满足至少一项：
+从当前代码看，有几个关键事实必须作为后续计划的前提：
+
+### 1. Skill Gateway 首版已经落地
+
+`memory / knowledge / skill` 三类检索已经开始统一到同一类混合检索实现上，Skill Gateway 不再只是手写规则的占位层。
+
+### 2. Evolution 首版已经落地
+
+系统已经不是“聊天后同步生成 draft”的最早期形态，而是具备异步 `EvolutionRunner`、多轮消息抽取和 identity context 接入的首版学习链路。
+
+### 3. Governance 闭环已经可运行
+
+`promote / merge / ignore`、merge history、lineage、usage 等文件工件都已经存在，说明治理不是纸面功能。
+
+### 4. 当前最大短板不是缺模块，而是缺质量保障
+
+现在继续盲目加功能，收益会越来越低；更关键的是把已完成的链路做稳、做准、做得可回归。
+
+---
+
+## 4. 产品目标与工程边界
+
+这部分不是重新发明需求，而是把 PRD 和设计文档里的要求落到执行边界上。
+
+## 4.1 产品目标
+
+ClawForge 要做的不是一个普通聊天壳，而是一个本地优先的 **Skill Gateway + Skill Evolution 工作台**。
+
+系统最终应具备四类核心能力：
+
+1. 在线请求能够稳定命中并注入最相关技能
+2. 多轮交互能够沉淀出可复用的技能草稿
+3. 草稿进入正式技能库前有可审查的治理过程
+4. 技能的来源、合并、版本和历史都可追踪
+
+## 4.2 工程边界
+
+后续开发必须持续遵守以下边界：
+
+- 本地优先
+- 文件优先
+- 可观察
+- 可编辑
+- 半自动演化
+- 不把正式技能库变成黑盒自动写入系统
+
+这意味着后续不应该为了“更智能”牺牲：
+
+- 工件可读性
+- 状态可追踪性
+- 治理可控性
+- 调试与回放能力
+
+---
+
+## 5. 当前核心问题
+
+如果只看当前最影响项目质量的事情，主要有五类问题。
+
+## 5.1 检索能力已经能用，但还不够稳
+
+当前 Skill Gateway 已有首版能力，但还存在：
+
+- 命中质量不够稳定
+- 样本覆盖不足
+- 中英文 query 验证不够
+- selection 阈值和排序策略还偏粗
+- hit reason 虽然存在，但还不够“可解释到能调”
+
+这会直接影响在线回答质量，也会影响后续 evolution 的 identity context。
+
+## 5.2 Draft 抽取已经异步化，但仍偏启发式
+
+当前抽取能力能工作，但距离“从交互中学习工作方式”还有明显差距：
+
+- 更像规则模板，不像真正的抽取器
+- 对 durable / reusable / one-off 的区分还不够强
+- 对多轮对话的结构化理解有限
+- 缺少回放评估能力
+
+## 5.3 Governance 已闭环，但决策可信度还不足
+
+当前 add / merge / ignore 已可用，但还没有达到“长期运行也不容易污染技能库”的程度。
+
+主要问题：
+
+- add 和 merge 的边界还不够稳
+- related skill 的召回质量还有提升空间
+- judge reason 够用，但还不够强
+- merge 的结构化程度仍然有继续提升空间
+
+## 5.4 Versioning 已有记录，但还不是真正可演化
+
+当前有 lineage、merge history、patch version 和 rollback 预留字段，但还缺：
+
+- 实际可执行 rollback
+- 更清晰的 diff / history 浏览
+- 更强的版本一致性约束
+
+## 5.5 测试体系仍然是最大的工程短板
+
+这是当前最现实、最值得优先补的部分：
+
+- 测试分散，尚未形成完整回归网络
+- 集成链路测试还不够系统
+- 临时文件和真实工作区之间的隔离还不够干净
+- 关键决策路径缺少更明确的回放样本
+
+---
+
+## 6. 总体开发策略
+
+接下来的开发不应按“继续堆功能模块”的思路走，而应按下面的顺序推进：
+
+```text
+先补工程保障
+再提升在线命中质量
+再提升学习与治理质量
+最后补版本演化与产品体验
+```
+
+原因很简单：
+
+- 没有测试保障，继续优化 A/B/C/D 只会越来越难验证
+- 没有稳定的在线检索质量，后续 evolution 的判断基础也会偏
+- 没有可靠治理，就会把错误经验沉淀进技能库
+
+所以，当前主线不是“再发明一个新阶段”，而是围绕几个工作流持续推进。
+
+---
+
+## 7. 后续开发按五条工作流推进
+
+## 工作流 A：回归测试与工程保障
+
+这是当前第一优先级。
+
+### 目标
+
+把当前“能跑”的系统变成“能稳定回归”的系统。
+
+### 要做的事
+
+- 补 Gateway 单元测试
+- 补 Draft 到 Governance 的集成测试
+- 补 Registry / Lineage / Merge History 一致性测试
+- 建立测试隔离策略，避免污染真实目录
+- 整理本地验证入口，形成固定回归执行方式
+
+### 完成标志
+
+- 后端关键链路至少都能自动化验证一遍
+- 测试执行后不会频繁留下真实垃圾状态
+- 每次改检索、抽取、治理逻辑时，都有明确的回归反馈
+
+## 工作流 B：Serving Path 质量提升
+
+这条工作流对应在线效果。
+
+### 目标
+
+把当前的 Skill Gateway 从“可用首版”提升到“更稳、更可调”的状态。
+
+### 要做的事
+
+- 扩充 skill retrieval 的 query 样本
+- 调整 selection 阈值与排序逻辑
+- 改善 hit reason 表达
+- 补充典型任务场景验证
+- 继续统一 skill / memory / knowledge 检索边界
+
+### 重点场景
+
+- rewrite
+- summary
+- translation
+- weather
+- stop words 干扰
+- 中英文混合表达
+
+### 完成标志
+
+- 常见 query 的命中明显更稳定
+- 误召回下降
+- selection 逻辑更可解释
+- 检索问题能通过测试和样本快速定位
+
+## 工作流 C：Learning Path 质量提升
+
+这条工作流对应 Skill Draft 的真实性和可复用性。
+
+### 目标
+
+让系统更像是在“提炼稳定工作方式”，而不是“捕捉一次性关键词”。
+
+### 要做的事
+
+- 提升 Extractor 的多轮归纳能力
+- 强化 reusable / durable 识别
+- 提高 identity context 的利用质量
+- 增加回放样本
+- 逐步向更明确的 `ExtractorSubAgent` 形态演进
+
+### 完成标志
+
+- draft 候选更像技能而不是单次请求摘要
+- one-off 污染显著减少
+- 抽取逻辑可以通过样本回放稳定评估
+
+## 工作流 D：Governance 与 Versioning 提升
+
+这条工作流对应技能库长期健康度。
+
+### 目标
+
+降低误 merge、误 add，逐步把版本演化做成真正可信的工件系统。
+
+### 要做的事
+
+- 继续提升 related skill 召回质量
+- 细化 add / merge / ignore 边界
+- 提升 judge 的 reason 质量
+- 优化 merge patch 结构
+- 增强 version / lineage / history 一致性
+- 为 rollback 与 diff 打基础
+
+### 完成标志
+
+- 治理建议更稳定
+- 技能库污染风险降低
+- merge 结果更可读、更可追踪
+
+## 工作流 E：前端工作台产品化
+
+这条工作流目前不是第一优先级，但不能长期忽略。
+
+### 目标
+
+让工作台从“联调工具”逐步变成“真正可用的技能工作台”。
+
+### 要做的事
+
+- 优化信息层级
+- 提高 Draft / Skill Inspector 可读性
+- 增强错误、加载、空状态反馈
+- 改进治理动作后的状态联动
+- 补充前端关键交互测试
+
+### 开始时机
+
+建议在工作流 A 稳定、工作流 B/C 至少完成一轮质量提升后，再集中投入。
+
+---
+
+## 8. 里程碑安排
+
+为了让执行更清楚，后续建议按四个里程碑推进，而不是继续堆很多抽象 phase 名称。
+
+## 里程碑 M1：测试网络成形
+
+### 核心目标
+
+先把系统变成“可持续回归”的状态。
+
+### 交付内容
+
+- Gateway 关键路径测试
+- Draft / Governance 集成测试
+- Registry 一致性测试
+- 测试隔离与清理策略
+
+### 这是当前最近的目标
+
+当前开发应首先完成 M1。
+
+## 里程碑 M2：在线命中质量显著提升
+
+### 核心目标
+
+让 Serving Path 的稳定性明显上一个台阶。
+
+### 交付内容
+
+- 更稳的 retrieval / selection
+- 更清晰的 skill hit reason
+- 更完整的 query 场景覆盖
+
+## 里程碑 M3：学习与治理质量显著提升
+
+### 核心目标
+
+让系统更可靠地“学对东西”，并减少技能库污染。
+
+### 交付内容
+
+- 更强的 draft extraction
+- 更稳的 judge
+- 更合理的 related skill 召回
+- 更强的 merge 结构化结果
+
+## 里程碑 M4：版本演化与工作台体验补齐
+
+### 核心目标
+
+把项目从内测雏形继续推向更成熟的单用户工作台。
+
+### 交付内容
+
+- rollback / diff 的进一步能力
+- 前端治理体验优化
+- 更完整的观察、追踪与编辑体验
+
+---
+
+## 9. 最近一段时间的具体执行顺序
+
+如果只看接下来最值得做的几件事，建议顺序是：
+
+### 1. 完成 M1
+
+也就是优先把测试体系补齐到“足以支撑持续开发”的程度。
+
+### 2. 基于测试回头继续打磨 Gateway
+
+先把在线命中质量再做稳一轮。
+
+### 3. 再继续优化 Extractor / Judge / Merger
+
+有了测试和更稳的 Gateway，再继续做 Learning Path 才更容易得到真实收益。
+
+### 4. 最后再集中做前端产品化
+
+前端当前已经够用来联调，不需要抢在后端质量之前成为主线。
+
+---
+
+## 10. 开发方式约定
+
+## 10.1 提交节奏
+
+每完成一个里程碑或一个较完整的工作包，就单独提交一次 Git。
+
+建议使用规范 commit message：
+
+- `feat(backend): ...`
+- `test(backend): ...`
+- `refactor(backend): ...`
+- `docs(project): ...`
+- `chore(project): ...`
+
+## 10.2 验收方式
+
+每个阶段性工作包至少满足以下一项：
 
 - 可运行
 - 可验证
 - 可回归
 - 可演示
 
-### 4.3 保持文件优先与可审查性
+如果一个改动不能被验证，就不算真正完成。
 
-后续新增能力仍需坚持：
+## 10.3 文档同步方式
 
-- 本地文件可查看
-- 状态可追踪
-- 结果可审查
-- 不隐藏在黑盒内部
+当前以 `docs/ClawForge 项目开发计划.md` 作为主计划文档。
 
-### 4.4 按阶段提交 Git
+后续每当项目状态发生明显变化，应至少同步：
 
-后续开发继续遵循当前节奏：
+- 当前目标是否变化
+- 当前工作流优先级是否变化
+- 当前里程碑是否完成
 
-- 每完成一个较大阶段，单独提交
-- commit message 使用规范命名
-- 阶段结束后推送到 GitHub
+## 10.4 环境约定
 
-建议沿用：
+当前后端开发环境默认使用：
 
-- `feat(frontend): ...`
-- `feat(backend): ...`
-- `chore(project): ...`
-- `docs(project): ...`
-- `test(backend): ...`
+- conda 环境：`mini-claw`
+- Python：`D:\develop\miniconda3\envs\mini-claw\python.exe`
 
 ---
 
-## 5. 后续阶段规划
+## 11. 最终一句话
 
-## 5.1 Phase A：后端检索质量升级
-
-### 目标
-
-把 Skill / Memory / Knowledge 检索从“可用”提升到“更稳”，并明确区分：
-
-- Memory / Knowledge RAG
-- Skill Gateway Retrieval
-
-### 主要任务
-
-- 把 Skill Gateway 检索升级为 `LlamaIndex` 驱动的 hybrid retrieval
-- 让技能索引覆盖 `name / description / tags / triggers / Goal / Constraints / Workflow`
-- 保留 `skill selection` 作为 retrieval 之后的第二道过滤层
-- 调整 selection 阈值、排序策略和 hit reason 展示
-- 补 Gateway 检索质量相关回归测试
-
-### 当前状态
-
-该阶段已部分推进：
-
-- 已引入共享文本匹配模块
-- 已改进 skill retrieval 的加权逻辑
-- 已补基础 retrieval 测试
-- `memory` / `knowledge` RAG 已切换到 `LlamaIndex`
-
-### 后续补充
-
-- 增加更多中文/英文任务样例
-- 增加针对 rewrite / summary / weather / translate 的召回验证
-- 完成 skill retrieval 的 dense + BM25 + fusion
-- 将 top-1 skill hit 作为 evolution 的辅助 identity context
-
-### 验收标准
-
-- 常见 stop words 不再造成明显误命中
-- `rewrite` 类 query 优先命中 `professional_rewrite`
-- `weather` 类 query 优先命中 `get_weather`
-- Gateway 检索后端不再主要依赖手写关键词规则
-- 回归测试可稳定通过
-
----
-
-## 5.2 Phase B：Draft Extractor 升级
-
-### 目标
-
-把当前关键词触发式草稿生成，升级为后台异步 `ExtractorSubAgent`，更接近“从多轮对话中提炼可复用规则”的版本。
-
-### 主要任务
-
-- 新增 `EvolutionRunner` 或同类后台调度模块
-- 把 extraction 从同步工具函数升级为异步子智能体执行
-- 扩展输入范围，不只看单轮 user message
-- 引入最近多轮上下文
-- 让 user messages 成为主证据，assistant 输出只作上下文
-- 利用 top-1 retrieval hit 作为辅助 identity context
-- 识别 durable / reusable / one-off 的差异
-- 更稳定地生成：
-  - goal
-  - constraints
-  - workflow
-  - why_extracted
-  - confidence
-
-### 当前进展（2026-04-19）
-
-- 已新增后端异步 `EvolutionRunner`
-- 聊天 API 已改为前台响应与后台 extraction 解耦
-- `draft_extractor.py` 已升级为读取最近多轮消息并接入 top-1 skill identity context
-- 已补 extractor 单测、API smoke 验证和本地 runner 验证
-- 当前实现仍是 Phase B 首版，后续还可继续向完整 `ExtractorSubAgent` 演进
-
-### 当前问题
-
-当前 `draft_extractor.py` 仍主要依赖关键词映射：
-
-- 泛化能力弱
-- 容易误触发
-- 不能真正反映“长期工作方式”
-- 仍未形成独立的后台 evolution 编排
-
-### 验收标准
-
-- 多轮对话能够生成更合理的草稿候选
-- 单次偶发请求不应轻易触发 Draft
-- rewrite / summary / translation / weather 等典型场景输出更稳定
-- 前台响应不需要等待 extraction 完成
-- 可通过本地 runner + API 测试验证
-
----
-
-## 5.3 Phase C：Skill Judge / Related Skill Finder 升级
-
-### 目标
-
-让 `JudgeSubAgent` 驱动的 `add / merge / ignore` 判断更稳，减少错误治理。
-
-### 主要任务
-
-- 提升 related skill 的召回质量
-- 细化相似度判断逻辑
-- 明确 add / merge 的边界条件
-- 将 judge 从简单阈值判断升级为独立治理判断模块
-- 增强 judge 的 reason 质量
-
-### 当前进展（2026-04-19）
-
-- 已为 related skill 增加面向治理的相似度视图
-- 已将 judge 升级为综合 job / constraints / workflow / retrieval evidence 的判断逻辑
-- 已补 Phase C 单测，并通过 retrieval、API smoke 和本地 runner 验证
-- 当前实现仍是 Phase C 首版，后续还可继续向完整 `JudgeSubAgent` 演进
-
-### 当前问题
-
-- 当前 related skill 基本复用 retrieval
-- 当前 judge 主要依赖简单 score 阈值
-- 容易出现“有点像就 merge”或“其实该 merge 却 add”问题
-
-### 验收标准
-
-- 典型草稿能更稳定给出合理 action
-- reason 能解释为什么 add / merge / ignore
-- 减少明显误 merge
-- Judge 的输入输出可以独立测试和回放
-
----
-
-## 5.4 Phase D：Skill Merge / Versioning 升级
-
-### 目标
-
-把治理后的结果从“能写进去”提升到“更可维护、更可回溯”。
-
-### 主要任务
-
-- 优化 merge patch 结构
-- 完善 version bump 规则
-- 补 lineage 与 merge history 的一致性约束
-- 为 rollback 预留接口与数据结构
-- 将 merge 动作收口到 `MergerSubAgent` / merger service 的明确边界中
-
-### 当前进展（2026-04-19）
-
-- 已将 merge 升级为结构化 `merge_patch` 输出
-- 已补 patch version 递增与 lineage / merge_history 一致性记录
-- 已增加 rollback 预留字段与 merge-history 查询接口
-- 已补 Phase D 单测，并通过 API smoke 与本地 runner 验证
-- 当前实现仍是 Phase D 首版，后续还可继续向完整 `MergerSubAgent` 和 rollback 能力演进
-
-### 当前问题
-
-- 当前 merge 更偏“追加内容”
-- 当前 versioning 还缺少完整 diff / rollback 能力
-
-### 验收标准
-
-- Merge 后 skill 文件结构可读性保持稳定
-- version / lineage / merge history 一致
-- 后续可扩展到 rollback
-- Merge 不再等同于“向 skill 文件追加内容”
-
----
-
-## 5.5 Phase E：测试体系补齐
-
-### 目标
-
-建立从“能跑”到“能持续回归”的工程保障。
-
-### 主要任务
-
-- 补 Gateway 单元测试
-- 补 Draft / Governance 集成测试
-- 补 Registry 一致性测试
-- 补前端关键交互测试
-- 整理测试产生的临时状态和清理策略
-
-### 当前已有基础
-
-- `tests/test_api_smoke.py`
-- `tests/test_retrieval_quality.py`
-- `tests/run_backend_local.py`
-
-### 验收标准
-
-- 核心链路至少具备基本回归保障
-- 检索质量、草稿生成、治理动作可自动化验证
-- 测试不会频繁污染工作区
-- Gateway / Evolution 的关键决策路径可回放
-
----
-
-## 5.6 Phase F：前端产品化打磨
-
-### 目标
-
-把当前“联调工作台”继续向“更成熟的产品工作台”推进。
-
-### 主要任务
-
-- 优化信息层级与布局
-- 增强错误反馈、加载反馈、空状态
-- 改进 Draft / Skill Inspector 的可读性
-- 提升治理操作后的状态联动体验
-- 增强前端测试与可维护性
-
-### 当前已有基础
-
-- Session list
-- Chat panel
-- SSE streaming
-- Activated Skills
-- Session Drafts
-- Draft Governance
-- Draft / Skill Inspector
-- usage / lineage / stale audit
-
-### 验收标准
-
-- 前端不只是“能测”，而是“更好用”
-- 关键状态切换更清晰
-- Inspector 内容更容易理解
-- 治理与观察流程更顺畅
-
----
-
-## 6. 建议执行顺序
-
-建议下一阶段继续按以下顺序推进：
-
-```text
-Phase A  Gateway LlamaIndex 检索升级
--> Phase B  ExtractorSubAgent + Evolution Runner
--> Phase C  JudgeSubAgent / Related Skill Finder 升级
--> Phase D  MergerSubAgent / Versioning 升级
--> Phase E  测试体系补齐
--> Phase F  前端产品化打磨
-```
-
-这样安排的原因是：
-
-- 先提升“命中质量”
-- 再提升“沉淀质量”
-- 再提升“治理质量”
-- 最后补“工程保障”和“产品体验”
-
----
-
-## 7. 阶段性交付要求
-
-每完成一个较大阶段，至少完成以下动作：
-
-### 7.1 代码交付
-
-- 完成该阶段核心功能
-- 本地验证通过
-- 不引入明显回归
-
-### 7.2 测试交付
-
-- 至少补一组对应测试
-- 或补一个可重复执行的验证脚本
-
-### 7.3 Git 提交
-
-- 使用规范 commit message
-- 提交单一阶段内容
-- 推送到 GitHub
-
-### 7.4 文档同步
-
-- 必要时同步 README
-- 必要时同步 `ClawForge 当前项目开发进度总结.md`
-- 重要阶段建议同步本开发计划文档
-
----
-
-## 8. 建议的近期优先级
-
-如果只看“接下来最值得做的三件事”，建议优先：
-
-### 1. 完成 Skill Gateway 的 LlamaIndex Hybrid Retrieval
-
-原因：
-
-- 它决定在线命中质量
-- 也是后续 related skill retrieval 与 extraction identity context 的基础
-
-### 2. 完成 ExtractorSubAgent + EvolutionRunner
-
-原因：
-
-- 它决定系统是不是在“学对东西”
-- 当前 extraction 仍是最明显的 MVP 痕迹之一
-
-### 3. 完成 Judge / Related Skill Finder 升级
-
-原因：
-
-- 它决定草稿最终会不会错误进入技能库
-- 这会直接影响 skill 污染风险
-
----
-
-## 9. 当前版本的阶段定义
-
-基于现状，建议将当前项目定义为：
-
-```text
-ClawForge MVP 内测版
-```
-
-其特点是：
-
-- 后端主链路已打通
-- 前端可测试工作台已落地
-- 核心能力可演示
-- 仍需继续优化效果质量、治理质量、测试体系和产品体验
-
----
-
-## 10. 总结
-
-ClawForge 已经走过“从文档到可运行 MVP”的关键阶段，当前开发重点不再是简单补模块，而是：
-
-```text
-把 MVP 做稳
-把关键质量做上去
-把工作台做得更可用
-把系统从演示态推向更可靠的内测态
-```
-
-因此，后续项目开发应围绕：
-
-- 检索质量
-- 草稿质量
-- 治理质量
-- 测试质量
-- 产品体验
-
-五个方向持续推进，并保持“每个阶段都有代码、测试、提交和文档同步”的开发节奏。
+ClawForge 接下来的开发重点，不是再去证明“这套系统能不能工作”，而是把已经存在的 **Skill Gateway + Skill Evolution + Governance** 主链路，逐步建设成一个 **可回归、可解释、可治理、可持续演进** 的本地技能工作台。
