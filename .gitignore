@@ -12,6 +12,9 @@ frontend/node_modules/
 dist/
 coverage/
 frontend/.npm-cache/
+*.tsbuildinfo
+frontend/playwright-report/
+frontend/test-results/
 backend/storage/local_runner*/
 backend/storage/retrieval_test_*/
 backend/sessions/*.json

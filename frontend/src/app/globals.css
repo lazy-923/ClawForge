@@ -97,7 +97,8 @@ button {
 .info-block,
 .session-list,
 .skill-list,
-.draft-list {
+.draft-list,
+.catalog-list {
   padding-inline: 24px;
 }
 
@@ -136,9 +137,20 @@ button {
   margin-top: 24px;
 }
 
+.panel-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-section.fill {
+  min-height: 0;
+  flex: 1;
+}
+
 .session-list,
 .skill-list,
-.draft-list {
+.draft-list,
+.catalog-list {
   display: grid;
   gap: 12px;
   padding-bottom: 24px;
@@ -146,7 +158,8 @@ button {
 
 .session-card,
 .skill-card,
-.draft-card {
+.draft-card,
+.catalog-card {
   border-radius: 18px;
   border: 1px solid var(--line);
   background: var(--panel-strong);
@@ -161,13 +174,15 @@ button {
 
 .session-card strong,
 .skill-card strong,
-.draft-card strong {
+.draft-card strong,
+.catalog-card strong {
   font-size: 0.98rem;
 }
 
 .session-card span,
 .skill-card span,
-.draft-card span {
+.draft-card span,
+.catalog-card span {
   color: var(--muted);
   font-size: 0.84rem;
 }
@@ -302,6 +317,11 @@ button {
   margin-bottom: 16px;
 }
 
+.info-block.compact {
+  padding-inline: 0;
+  margin: 16px 0 0;
+}
+
 .info-block small {
   display: block;
   margin-bottom: 8px;
@@ -320,7 +340,8 @@ button {
 }
 
 .skill-card,
-.draft-card {
+.draft-card,
+.catalog-card {
   padding: 16px;
 }
 
@@ -330,15 +351,106 @@ button {
 }
 
 .skill-card p,
-.draft-card p {
+.draft-card p,
+.catalog-card p {
   margin: 8px 0;
   line-height: 1.55;
 }
 
 .skill-card.active,
-.draft-card.active {
+.draft-card.active,
+.catalog-card.active {
   border-color: rgba(30, 107, 87, 0.34);
   background: linear-gradient(180deg, rgba(30, 107, 87, 0.12), rgba(255, 255, 255, 0.92));
+}
+
+.catalog-card {
+  text-align: left;
+  width: 100%;
+}
+
+.catalog-card-head,
+.backend-topline,
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.catalog-card-head {
+  margin-bottom: 6px;
+}
+
+.backend-card {
+  margin: 0 24px 24px;
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(30, 107, 87, 0.1), rgba(255, 255, 255, 0.94)),
+    rgba(255, 255, 255, 0.92);
+}
+
+.backend-metrics,
+.backend-meta,
+.meta-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.backend-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.backend-metrics small,
+.backend-meta span {
+  color: var(--muted);
+}
+
+.backend-metrics strong {
+  display: block;
+  margin-top: 4px;
+}
+
+.backend-meta {
+  margin-top: 14px;
+}
+
+.health-pill,
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1;
+}
+
+.health-pill.success {
+  border-color: rgba(30, 107, 87, 0.18);
+  background: rgba(30, 107, 87, 0.1);
+  color: var(--accent);
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-row.spacious {
+  margin-top: 14px;
+}
+
+.tag-chip.muted {
+  opacity: 0.8;
 }
 
 .draft-reason {
@@ -405,6 +517,10 @@ button {
   line-height: 1.6;
 }
 
+.detail-header p {
+  margin: 6px 0 0;
+}
+
 .detail-card pre {
   white-space: pre-wrap;
   word-break: break-word;
@@ -424,6 +540,11 @@ button {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  margin-top: 14px;
+}
+
+.meta-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 14px;
 }
 
@@ -452,6 +573,24 @@ button {
   margin-top: 14px;
 }
 
+.subsection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.subsection-head h3 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.subsection-head span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
 .empty-state {
   color: var(--muted);
   line-height: 1.6;
@@ -471,5 +610,42 @@ button {
 
   .message-bubble {
     max-width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-shell {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .panel-header {
+    padding: 20px 20px 14px;
+  }
+
+  .panel-copy,
+  .section-head,
+  .info-block,
+  .session-list,
+  .skill-list,
+  .draft-list,
+  .catalog-list {
+    padding-inline: 20px;
+  }
+
+  .backend-card,
+  .detail-card {
+    margin-inline: 20px;
+  }
+
+  .chat-form,
+  .message-stream {
+    padding-inline: 20px;
+  }
+
+  .backend-metrics,
+  .metric-grid,
+  .meta-grid {
+    grid-template-columns: 1fr;
   }
 }

@@ -9,7 +9,6 @@ class KnowledgeIndexer:
         self._store = self._build_store()
 
     def rebuild_index(self) -> None:
-        self._store = self._build_store()
         self._store.rebuild_index()
 
     def retrieve(self, query: str, top_k: int = 3) -> list[dict[str, object]]:

@@ -131,15 +131,14 @@ ClawForge/
 推荐使用本地 conda 环境：
 
 ```bash
-conda activate clawforge
+conda activate mini-claw
 ```
 
 ### 启动后端
 
 ```bash
-cd backend
-pip install -r requirements.txt
-uvicorn app:app --host 0.0.0.0 --port 8002 --reload
+pip install -r backend/requirements.txt
+uvicorn backend.app:app --host 0.0.0.0 --port 8002 --reload
 ```
 
 ### 启动前端
@@ -148,6 +147,25 @@ uvicorn app:app --host 0.0.0.0 --port 8002 --reload
 cd frontend
 npm install
 npm run dev
+```
+
+### 前端配置
+
+```bash
+copy frontend\\.env.example frontend\\.env.local
+```
+
+如果后端地址不是 `http://127.0.0.1:8002/api`，可以在 `frontend/.env.local` 中修改 `NEXT_PUBLIC_API_BASE_URL`。
+
+### 前端验证
+
+```bash
+cd frontend
+npm run lint
+npm run typecheck
+npm run build
+npm run test:smoke
+npm run test:e2e
 ```
 
 默认访问地址：

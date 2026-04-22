@@ -8,6 +8,7 @@ from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
+from openai import APIConnectionError
 
 from backend.config import settings
 from backend.graph.memory_indexer import memory_indexer
@@ -63,15 +64,26 @@ class AgentManager:
                 await asyncio.sleep(0)
                 yield {"type": "token", "content": chunk}
         else:
-            messages = self._build_messages(
-                message,
-                history,
-                activated_skill_context,
-                retrievals,
-            )
-            agent = self._build_langchain_agent(activated_skill_context)
-            result = await agent.ainvoke({"messages": messages})
-            response = self._extract_response_text(result)
+            try:
+                messages = self._build_messages(
+                    message,
+                    history,
+                    activated_skill_context,
+                    retrievals,
+                )
+                agent = self._build_langchain_agent(activated_skill_context)
+                result = await agent.ainvoke({"messages": messages})
+                response = self._extract_response_text(result)
+            except APIConnectionError:
+                self.llm = None
+                self.runtime_mode = "mock"
+                response = self._build_mock_response(
+                    message,
+                    history,
+                    retrievals,
+                    activated_skills or [],
+                    activated_skill_context,
+                )
             for chunk in self._chunk_text(response):
                 await asyncio.sleep(0)
                 yield {"type": "token", "content": chunk}
