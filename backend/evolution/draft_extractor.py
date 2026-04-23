@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import json
+import re
 from collections import Counter
 from dataclasses import dataclass
+from typing import Any
 
+from langchain_openai import ChatOpenAI
+from openai import APIConnectionError
+
+from backend.config import settings
 from backend.retrieval.text_matcher import extract_terms
 
 
@@ -118,6 +125,17 @@ def extract_draft_candidate(
     intent_signals = _collect_intent_signals(recent_user_messages)
     latest_intents = intent_signals[-1] if intent_signals else set()
     if not latest_intents:
+        if _has_explicit_skill_signal(recent_user_messages, identity_context):
+            return _try_llm_draft_candidate(
+                recent_messages=recent_messages,
+                latest_user_message=latest_user_message,
+                latest_assistant_message=latest_assistant_message,
+                identity_context=identity_context,
+                dominant_intent=None,
+                reusable_terms=[],
+                repeated_intent=False,
+                has_identity_match=bool(identity_context),
+            )
         return None
 
     intent_counts = Counter(intent for intents in intent_signals for intent in intents)
@@ -136,6 +154,19 @@ def extract_draft_candidate(
     has_identity_match = _identity_matches_template(identity_context, template)
     if not repeated_intent and not (has_identity_match and reusable_terms):
         return None
+
+    llm_candidate = _try_llm_draft_candidate(
+        recent_messages=recent_messages,
+        latest_user_message=latest_user_message,
+        latest_assistant_message=latest_assistant_message,
+        identity_context=identity_context,
+        dominant_intent=dominant_intent,
+        reusable_terms=reusable_terms,
+        repeated_intent=repeated_intent,
+        has_identity_match=has_identity_match,
+    )
+    if llm_candidate is not None:
+        return llm_candidate
 
     evidence_messages = _select_evidence_messages(recent_user_messages, dominant_intent)
     why_extracted = _build_why_extracted(
@@ -168,6 +199,107 @@ def extract_draft_candidate(
         why_extracted=why_extracted,
         confidence=confidence,
     )
+
+
+def _try_llm_draft_candidate(
+    *,
+    recent_messages: list[dict[str, object]],
+    latest_user_message: str,
+    latest_assistant_message: str,
+    identity_context: dict[str, object] | None,
+    dominant_intent: str | None,
+    reusable_terms: list[str],
+    repeated_intent: bool,
+    has_identity_match: bool,
+) -> DraftCandidate | None:
+    if not settings.llm_is_configured:
+        return None
+
+    template = INTENT_TEMPLATES[dominant_intent] if dominant_intent else None
+    payload = {
+        "latest_user_message": latest_user_message,
+        "latest_assistant_message": latest_assistant_message,
+        "recent_messages": _serialize_messages(recent_messages[-8:]),
+        "identity_context": identity_context,
+        "durability_signals": {
+            "dominant_intent": dominant_intent,
+            "repeated_intent": repeated_intent,
+            "has_identity_match": has_identity_match,
+            "reusable_terms": reusable_terms,
+        },
+        "fallback_template": _template_payload(template),
+    }
+    try:
+        llm = ChatOpenAI(
+            model=settings.llm_model,
+            api_key=settings.llm_api_key,
+            base_url=settings.llm_base_url,
+            temperature=0.0,
+            streaming=False,
+        )
+        response = llm.invoke(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You extract reusable long-lived agent skills from recent turns. "
+                        "Be conservative: return should_create=false for one-off tasks, "
+                        "temporary preferences, or facts better suited for memory. "
+                        "Return JSON only with shape: "
+                        "{\"should_create\":true,\"name\":\"...\",\"description\":\"...\","
+                        "\"goal\":\"...\",\"constraints\":[\"...\"],\"workflow\":[\"...\"],"
+                        "\"why_extracted\":\"...\",\"confidence\":0.0}."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(payload, ensure_ascii=False, indent=2),
+                },
+            ]
+        )
+        data = _parse_json_response(getattr(response, "content", ""))
+        return _normalize_llm_candidate(data)
+    except (APIConnectionError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+
+
+def _normalize_llm_candidate(data: dict[str, Any]) -> DraftCandidate | None:
+    if not bool(data.get("should_create", False)):
+        return None
+    name = _clean_skill_name(data.get("name", ""))
+    description = _clean_text(data.get("description", ""), limit=240)
+    goal = _clean_text(data.get("goal", ""), limit=500)
+    constraints = _coerce_string_list(data.get("constraints"), limit=8, item_limit=220)
+    workflow = _coerce_string_list(data.get("workflow"), limit=8, item_limit=220)
+    why_extracted = _clean_text(data.get("why_extracted", ""), limit=500)
+    confidence = _coerce_confidence(data.get("confidence"))
+
+    if not name or not description or not goal or not workflow:
+        return None
+    if confidence < 0.58:
+        return None
+
+    return DraftCandidate(
+        name=name,
+        description=description,
+        goal=goal,
+        constraints=_dedupe_preserve_order(constraints),
+        workflow=_dedupe_preserve_order(workflow),
+        why_extracted=why_extracted or "LLM identified a durable reusable skill pattern.",
+        confidence=confidence,
+    )
+
+
+def _template_payload(template: IntentTemplate | None) -> dict[str, object] | None:
+    if template is None:
+        return None
+    return {
+        "name": template.name,
+        "description": template.description,
+        "goal": template.goal,
+        "constraints": template.constraints,
+        "workflow": template.workflow,
+    }
 
 
 def _collect_intent_signals(user_messages: list[str]) -> list[set[str]]:
@@ -210,6 +342,27 @@ def _identity_matches_template(
     if not identity_context:
         return False
     return str(identity_context.get("name", "")).strip().lower() == template.name.lower()
+
+
+def _has_explicit_skill_signal(
+    user_messages: list[str],
+    identity_context: dict[str, object] | None,
+) -> bool:
+    if identity_context:
+        return True
+    joined = "\n".join(user_messages[-3:]).casefold()
+    durable_markers = (
+        "always",
+        "whenever",
+        "for future",
+        "from now on",
+        "next time",
+        "remember this workflow",
+        "turn this into a skill",
+        "create a skill",
+        "reuse this workflow",
+    )
+    return any(marker in joined for marker in durable_markers)
 
 
 def _select_evidence_messages(user_messages: list[str], dominant_intent: str) -> list[str]:
@@ -273,3 +426,73 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
         seen.add(item)
         ordered.append(item)
     return ordered
+
+
+def _serialize_messages(messages: list[dict[str, object]]) -> list[dict[str, str]]:
+    serialized: list[dict[str, str]] = []
+    for message in messages:
+        content = _clean_text(message.get("content", ""), limit=600)
+        if not content:
+            continue
+        serialized.append(
+            {
+                "role": _clean_text(message.get("role", "message"), limit=40) or "message",
+                "content": content,
+            }
+        )
+    return serialized
+
+
+def _parse_json_response(raw_content: object) -> dict[str, Any]:
+    text = str(raw_content or "").strip()
+    if not text:
+        raise ValueError("Empty LLM draft response")
+    if text.startswith("{"):
+        data = json.loads(text)
+    else:
+        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        if not match:
+            raise ValueError("LLM draft response did not contain JSON")
+        data = json.loads(match.group(0))
+    if not isinstance(data, dict):
+        raise ValueError("LLM draft response must be an object")
+    return data
+
+
+def _clean_text(value: object, *, limit: int | None = None) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if limit is not None:
+        return text[:limit]
+    return text
+
+
+def _clean_skill_name(value: object) -> str:
+    raw = _clean_text(value, limit=80).lower()
+    normalized = re.sub(r"[^a-z0-9_ -]", "", raw)
+    normalized = re.sub(r"[\s-]+", "_", normalized).strip("_")
+    return normalized[:64]
+
+
+def _coerce_string_list(value: object, *, limit: int, item_limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for item in value:
+        clean = _clean_text(item, limit=item_limit)
+        if clean:
+            items.append(clean)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _coerce_confidence(value: object) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 0.5
+    if confidence < 0:
+        return 0.0
+    if confidence > 1:
+        return 1.0
+    return round(confidence, 2)

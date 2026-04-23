@@ -6,7 +6,9 @@ from pathlib import Path
 
 from backend.config import settings
 from backend.evolution.skill_versioning import build_rollback_stub
+from backend.evolution.skill_versioning import build_snapshot_rollback
 from backend.evolution.skill_versioning import bump_patch_version
+from backend.evolution.skill_versioning import create_skill_snapshot
 
 
 @dataclass
@@ -145,7 +147,7 @@ def _serialize_skill_document(document: ParsedSkillDocument) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def merge_draft_into_skill(draft: dict[str, object], target_skill: str) -> dict[str, object]:
+def build_merge_plan(draft: dict[str, object], target_skill: str) -> dict[str, object]:
     skill_dir = settings.skills_dir / _sanitize_skill_name(target_skill)
     skill_path = skill_dir / "SKILL.md"
     if not skill_path.exists():
@@ -184,7 +186,6 @@ def merge_draft_into_skill(draft: dict[str, object], target_skill: str) -> dict[
         ],
     )
     new_content = _serialize_skill_document(document)
-    skill_path.write_text(new_content, encoding="utf-8")
 
     merge_patch = {
         "from_version": old_version,
@@ -225,6 +226,56 @@ def merge_draft_into_skill(draft: dict[str, object], target_skill: str) -> dict[
         "patch_summary": patch_summary,
         "merge_patch": merge_patch,
         "path": str(skill_path.relative_to(settings.backend_dir)),
+        "source_draft": str(draft["draft_id"]),
+        "preview": _build_merge_preview(
+            skill_name=str(metadata["name"]),
+            added_constraints=added_constraints,
+            added_workflow=added_workflow,
+            goal_changed=goal_changed,
+            old_version=old_version,
+            new_version=new_version,
+        ),
+        "new_content": new_content,
+    }
+
+
+def apply_merge_plan(plan: dict[str, object]) -> dict[str, object]:
+    relative_path = Path(str(plan["path"]))
+    skill_path = (settings.backend_dir / relative_path).resolve()
+    skill_path.relative_to(settings.skills_dir.resolve())
+    snapshot = create_skill_snapshot(
+        skill_name=str(plan["target_skill"]),
+        version=str(plan["old_version"]),
+        skill_path=skill_path,
+        operation="merge",
+        source_draft=str(plan.get("source_draft", "")) or None,
+    )
+    merge_patch = dict(plan["merge_patch"])
+    merge_patch["snapshot"] = snapshot
+    merge_patch["rollback"] = build_snapshot_rollback(
+        skill_name=str(plan["target_skill"]),
+        from_version=str(plan["new_version"]),
+        to_version=str(plan["old_version"]),
+        snapshot=snapshot,
+    )
+    plan["merge_patch"] = merge_patch
+    skill_path.write_text(str(plan["new_content"]), encoding="utf-8")
+    return _public_merge_result(plan)
+
+
+def merge_draft_into_skill(draft: dict[str, object], target_skill: str) -> dict[str, object]:
+    return apply_merge_plan(build_merge_plan(draft, target_skill))
+
+
+def _public_merge_result(plan: dict[str, object]) -> dict[str, object]:
+    return {
+        "target_skill": plan["target_skill"],
+        "old_version": plan["old_version"],
+        "new_version": plan["new_version"],
+        "patch_summary": plan["patch_summary"],
+        "merge_patch": plan["merge_patch"],
+        "path": plan["path"],
+        "preview": plan["preview"],
     }
 
 
@@ -282,3 +333,30 @@ def _build_patch_summary(
     if len(summary_parts) == 1:
         summary_parts.append("no structural additions")
     return "; ".join(summary_parts)
+
+
+def _build_merge_preview(
+    *,
+    skill_name: str,
+    added_constraints: list[str],
+    added_workflow: list[str],
+    goal_changed: bool,
+    old_version: str,
+    new_version: str,
+) -> dict[str, object]:
+    changes: list[str] = [f"Version: {old_version} -> {new_version}"]
+    if goal_changed:
+        changes.append("Goal will be filled from the draft.")
+    if added_constraints:
+        changes.append(f"Add {len(added_constraints)} constraint(s).")
+    if added_workflow:
+        changes.append(f"Add {len(added_workflow)} workflow step(s).")
+    if len(changes) == 1:
+        changes.append("No structural constraints or workflow steps will be added.")
+    return {
+        "skill": skill_name,
+        "changes": changes,
+        "added_constraints": added_constraints,
+        "added_workflow": added_workflow,
+        "goal_changed": goal_changed,
+    }

@@ -24,3 +24,4 @@ backend/storage/
 backend/storage/test_backups*/
 backend/skill_drafts/*.md
 backend/skill_registry/*.json
+backend/skill_registry/snapshots/

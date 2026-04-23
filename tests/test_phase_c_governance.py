@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from backend.evolution.related_skill_finder import find_related_skills
 from backend.evolution.skill_judge import judge_draft
@@ -50,6 +51,45 @@ class PhaseCGovernanceTestCase(unittest.TestCase):
         self.assertEqual(judgment["action"], "merge")
         self.assertEqual(judgment["target_skill"], "professional_rewrite")
         self.assertIn("Merge into", judgment["reason"])
+        self.assertEqual(judgment["decision_mode"], "fallback")
+
+    def test_judge_draft_prefers_llm_judgment_when_available(self) -> None:
+        llm_judgment = {
+            "action": "merge",
+            "target_skill": "professional_rewrite",
+            "reason": "LLM found the same job-to-be-done.",
+            "confidence": 0.88,
+            "decision_mode": "llm",
+            "merge_risk": "low",
+            "requires_review": True,
+            "patch_intent": {
+                "add_constraints": [],
+                "add_workflow": [],
+            },
+        }
+
+        with patch(
+            "backend.evolution.skill_judge._try_llm_judge_draft",
+            return_value=llm_judgment,
+        ):
+            judgment = judge_draft(
+                {
+                    "name": "professional_rewrite",
+                    "confidence": 0.82,
+                },
+                [
+                    {
+                        "name": "professional_rewrite",
+                        "governance_score": 0.82,
+                        "job_similarity": 0.81,
+                        "constraints_similarity": 0.67,
+                        "workflow_similarity": 0.71,
+                        "matched_fields": ["name", "goal", "workflow"],
+                    }
+                ],
+            )
+
+        self.assertEqual(judgment, llm_judgment)
 
     def test_judge_draft_keeps_distinct_skill_as_add(self) -> None:
         judgment = judge_draft(

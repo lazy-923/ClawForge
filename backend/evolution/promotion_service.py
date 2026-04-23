@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from backend.config import settings
 from backend.evolution.draft_service import draft_service
 from backend.evolution.registry_service import registry_service
+from backend.evolution.skill_merger import build_merge_plan
 from backend.evolution.skill_merger import merge_draft_into_skill
 from backend.gateway.skill_indexer import skill_indexer
 from backend.tools.skills_scanner import scan_skills
@@ -102,6 +103,23 @@ class PromotionService:
         return {
             "draft": updated_draft,
             **result,
+        }
+
+    def preview_merge(self, draft_id: str, target_skill: str | None = None) -> dict[str, object]:
+        draft = draft_service.get_draft_record(draft_id)
+        if draft is None:
+            raise FileNotFoundError("Draft not found")
+
+        target = target_skill or draft.get("related_skill")
+        if not target:
+            raise ValueError("A target skill is required for merge preview")
+
+        plan = build_merge_plan(draft, str(target))
+        plan.pop("new_content", None)
+        return {
+            "draft_id": draft_id,
+            "target_skill": str(target),
+            "merge_plan": plan,
         }
 
     def ignore(self, draft_id: str) -> dict[str, object]:

@@ -70,6 +70,7 @@ class Settings:
     merge_history_path: Path = skill_registry_dir / "merge_history.json"
     lineage_path: Path = skill_registry_dir / "lineage.json"
     usage_stats_path: Path = skill_registry_dir / "usage_stats.json"
+    skill_snapshots_dir: Path = skill_registry_dir / "snapshots"
     memory_candidates_path: Path = memory_dir / "memory_candidates.json"
     memory_index_dir: Path = storage_dir / "memory_index"
     knowledge_index_dir: Path = storage_dir / "knowledge_index"

@@ -83,6 +83,15 @@ class DraftService:
             "why_extracted": candidate.why_extracted,
             "related_skills": related_skills,
             "judge_reason": judgment["reason"],
+            "judge": {
+                "decision_mode": judgment.get("decision_mode", "fallback"),
+                "confidence": judgment.get("confidence"),
+                "merge_risk": judgment.get("merge_risk"),
+                "requires_review": judgment.get("requires_review", False),
+                "patch_intent": judgment.get("patch_intent", {}),
+                "fallback_action": judgment.get("fallback_action"),
+                "fallback_target_skill": judgment.get("fallback_target_skill"),
+            },
             "evidence": {
                 "messages": evidence_messages,
                 "identity_context": identity_context,
@@ -200,6 +209,7 @@ class DraftService:
                 "workflow": payload["workflow"],
                 "why_extracted": payload["why_extracted"],
                 "related_skills": payload["related_skills"],
+                "judge": payload["judge"],
                 "evidence": payload["evidence"],
                 "created_at": payload["created_at"],
             }
@@ -234,7 +244,20 @@ class DraftService:
         lines.extend(f"- {item}" for item in payload["constraints"])
         lines.extend(["", "# Workflow"])
         lines.extend(f"1. {item}" for item in payload["workflow"])
-        lines.extend(["", "# Judge", payload["judge_reason"], "", "# Evidence"])
+        lines.extend(["", "# Judge", payload["judge_reason"]])
+        judge = payload.get("judge", {})
+        if isinstance(judge, dict):
+            lines.extend(
+                [
+                    "",
+                    "## Judge Metadata",
+                    f"- decision_mode: {judge.get('decision_mode', 'fallback')}",
+                    f"- confidence: {judge.get('confidence', '')}",
+                    f"- merge_risk: {judge.get('merge_risk', '')}",
+                    f"- requires_review: {judge.get('requires_review', False)}",
+                ]
+            )
+        lines.extend(["", "# Evidence"])
         for message in payload["evidence"]["messages"]:
             lines.append(f"- {message['role']}: {message['content']}")
 

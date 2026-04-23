@@ -49,6 +49,19 @@ async def merge_draft(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/drafts/{draft_id}/merge-preview")
+async def preview_merge_draft(
+    draft_id: str,
+    request: MergeDraftRequest | None = None,
+) -> dict[str, object]:
+    try:
+        return promotion_service.preview_merge(draft_id, request.target_skill if request else None)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/drafts/{draft_id}/ignore")
 async def ignore_draft(draft_id: str) -> dict[str, object]:
     try:
