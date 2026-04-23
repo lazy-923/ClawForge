@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import AsyncIterator
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -44,7 +44,10 @@ def _build_identity_context(skill_hit: dict[str, object]) -> dict[str, object] |
 
 @router.post("/chat")
 async def chat(request: ChatRequest):
-    session_id, created = session_manager.ensure_session(request.session_id)
+    try:
+        session_id, created = session_manager.ensure_session(request.session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     history = session_manager.load_session_for_agent(session_id)
     skill_hit = gateway_manager.activate_skills(session_id, request.message, history)
     identity_context = _build_identity_context(skill_hit)

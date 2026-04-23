@@ -311,14 +311,13 @@ backend/sessions/<session_id>.json
 - `workspace/IDENTITY.md`
 - `workspace/USER.md`
 - `workspace/AGENTS.md`
-- `memory/MEMORY.md`
 - Skill Gateway 本轮激活的 Activated Skills 上下文
 
 这样做的好处是：
 
 - 工作区文件一改，下一次请求立刻生效
 - 只有 Gateway 改写、检索、筛选后的相关技能进入上下文
-- 长期记忆和系统约束始终是最新的
+- 长期记忆只通过相关性检索进入本轮上下文，避免全量 Prompt 膨胀
 
 ## 5. Agent Runtime `backend/graph/agent.py`
 
@@ -398,7 +397,9 @@ ClawForge 的记忆不是单一概念，而是三层结构。
 
 - 维持同一会话的上下文连续性
 - 保存用户消息与助手消息
-- 为后续轮次直接提供历史
+- 为后续轮次提供最近窗口内的历史
+- 当历史超过 `SESSION_HISTORY_MAX_MESSAGES` 时，自动把溢出的旧消息压缩进 `summary`
+- 截断后会把 `summary` 作为 `[Session Summary]` 补充给 Agent
 
 ### 2. Long-term Memory
 
@@ -408,7 +409,9 @@ ClawForge 的记忆不是单一概念，而是三层结构。
 backend/memory/MEMORY.md
 ```
 
-它既会作为静态 Prompt 组件被读取，也会在每轮请求时做一次检索补充。
+它不会作为静态 Prompt 组件全量注入，而是在每轮请求时按当前 message 做相关性检索，并把命中片段作为 `[Relevant Memory]` 补充。
+
+长期记忆写入不直接来自聊天历史。新的长期记忆需要先进入 memory candidate 队列，再通过人工治理动作 promote 后追加到 `MEMORY.md`。
 
 ### 3. Knowledge Memory
 
@@ -424,8 +427,8 @@ backend/knowledge/
 
 每轮对话时，Agent 输入中同时可能包含三种上下文：
 
-1. 当前 session 的历史消息
-2. `MEMORY.md` 的静态内容
+1. 当前 session 的最近历史窗口
+2. 自动维护的 session summary
 3. 当前 message 触发的 relevant memory retrieval
 
 这三者并不互相替代。
@@ -517,6 +520,16 @@ user message
 -> 仅参与本次请求，不替代 session history
 ```
 
+### Memory Candidate 治理
+
+```text
+POST /api/memory/candidates
+-> pending memory candidate
+-> POST /api/memory/candidates/{candidate_id}/promote
+-> append to MEMORY.md
+-> rebuild memory index
+```
+
 ### Draft 生成与治理
 
 ```text
@@ -538,10 +551,11 @@ chat done
 | 决策 | 理由 |
 | --- | --- |
 | 文件驱动而非数据库 | 所有状态对开发者透明可查 |
-| 每次请求重建 Prompt 组件 | workspace / memory / skill 修改后可立即生效 |
+| 每次请求重建 Prompt 组件 | workspace 与本轮激活技能修改后可立即生效 |
 | Skill Gateway 与 Learning Path 分离 | 在线回答与长期演化职责不同 |
 | 技能是 Markdown 工件 | 保持技能可读、可编辑、可治理 |
 | memory retrieval 结果不持久化到 session | 避免会话文件膨胀 |
+| 长期记忆必须先进入 candidate 队列 | 防止聊天内容自动污染 `MEMORY.md` |
 | skill / memory / knowledge 共用统一检索底座 | 保持检索策略一致、便于演进 |
 | Promote / Merge 需要人工确认 | 防止技能库自动污染 |
 

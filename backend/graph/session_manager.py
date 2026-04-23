@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import time
 import uuid
 from pathlib import Path
 
 from backend.config import settings
+
+SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 
 
 class SessionManager:
@@ -14,7 +18,25 @@ class SessionManager:
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
 
     def _session_path(self, session_id: str) -> Path:
-        return self.sessions_dir / f"{session_id}.json"
+        self._validate_session_id(session_id)
+        path = (self.sessions_dir / f"{session_id}.json").resolve()
+        path.relative_to(self.sessions_dir.resolve())
+        return path
+
+    def _validate_session_id(self, session_id: str) -> None:
+        if not SESSION_ID_PATTERN.fullmatch(session_id):
+            raise ValueError("Session id must use 1-80 letters, numbers, underscores, or hyphens")
+
+    def _write_json_atomic(self, path: Path, payload: dict[str, object]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        content = json.dumps(payload, ensure_ascii=False, indent=2)
+        if os.name == "nt":
+            path.write_text(content, encoding="utf-8")
+            return
+
+        temp_path = path.with_name(f"{path.stem}-{uuid.uuid4().hex}.tmp")
+        temp_path.write_text(content, encoding="utf-8")
+        temp_path.replace(path)
 
     def session_exists(self, session_id: str) -> bool:
         return self._session_path(session_id).exists()
@@ -24,17 +46,17 @@ class SessionManager:
             return session_id, False
 
         new_session_id = session_id or uuid.uuid4().hex
+        self._validate_session_id(new_session_id)
         payload = {
             "session_id": new_session_id,
             "title": "New Session",
             "created_at": time.time(),
             "updated_at": time.time(),
+            "summary": "",
+            "summarized_message_count": 0,
             "messages": [],
         }
-        self._session_path(new_session_id).write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        self._write_json_atomic(self._session_path(new_session_id), payload)
         return new_session_id, True
 
     def read_session(self, session_id: str) -> dict[str, object]:
@@ -42,13 +64,50 @@ class SessionManager:
 
     def write_session(self, session_id: str, payload: dict[str, object]) -> None:
         payload["updated_at"] = time.time()
-        self._session_path(session_id).write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        self._write_json_atomic(self._session_path(session_id), payload)
 
     def load_session_for_agent(self, session_id: str) -> list[dict[str, object]]:
-        return list(self.read_session(session_id).get("messages", []))
+        payload = self.read_session(session_id)
+        messages = list(payload.get("messages", []))
+        max_messages = max(1, settings.session_history_max_messages)
+        window = messages[-max_messages:]
+        summary = str(payload.get("summary", "")).strip()
+        if summary and len(window) < len(messages):
+            return [{"role": "system", "content": f"[Session Summary]\n{summary}"}] + window
+        return window
+
+    def _refresh_summary(self, payload: dict[str, object]) -> None:
+        messages = list(payload.get("messages", []))
+        max_messages = max(1, settings.session_history_max_messages)
+        overflow_count = max(0, len(messages) - max_messages)
+        summarized_count = int(payload.get("summarized_message_count", 0) or 0)
+        if overflow_count <= summarized_count:
+            return
+
+        new_items = messages[summarized_count:overflow_count]
+        previous_summary = str(payload.get("summary", "")).strip()
+        payload["summary"] = self._build_session_summary(previous_summary, new_items)
+        payload["summarized_message_count"] = overflow_count
+        payload["summary_updated_at"] = time.time()
+
+    def _build_session_summary(
+        self,
+        previous_summary: str,
+        messages: list[dict[str, object]],
+    ) -> str:
+        lines: list[str] = []
+        if previous_summary:
+            lines.append(previous_summary)
+        for message in messages:
+            role = str(message.get("role", "message")).strip() or "message"
+            content = " ".join(str(message.get("content", "")).split())
+            if not content:
+                continue
+            lines.append(f"- {role}: {content[:settings.session_summary_message_chars]}")
+        summary = "\n".join(lines).strip()
+        if len(summary) <= settings.session_summary_max_chars:
+            return summary
+        return summary[-settings.session_summary_max_chars :].lstrip()
 
     def save_message(
         self,
@@ -66,6 +125,7 @@ class SessionManager:
         if tool_calls:
             message["tool_calls"] = tool_calls
         payload.setdefault("messages", []).append(message)
+        self._refresh_summary(payload)
         self.write_session(session_id, payload)
 
     def rename_session(self, session_id: str, title: str) -> None:
@@ -85,6 +145,8 @@ class SessionManager:
             "created_at": payload["created_at"],
             "updated_at": payload["updated_at"],
             "message_count": len(payload.get("messages", [])),
+            "summarized_message_count": int(payload.get("summarized_message_count", 0) or 0),
+            "has_summary": bool(str(payload.get("summary", "")).strip()),
         }
 
     def list_sessions(self) -> list[dict[str, object]]:
@@ -98,10 +160,11 @@ class SessionManager:
                     "created_at": payload["created_at"],
                     "updated_at": payload["updated_at"],
                     "message_count": len(payload.get("messages", [])),
+                    "summarized_message_count": int(payload.get("summarized_message_count", 0) or 0),
+                    "has_summary": bool(str(payload.get("summary", "")).strip()),
                 }
             )
         return sorted(sessions, key=lambda item: float(item["updated_at"]), reverse=True)
 
 
 session_manager = SessionManager(settings.sessions_dir)
-

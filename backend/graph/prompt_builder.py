@@ -12,7 +12,6 @@ class PromptBuilder:
             ("Identity", settings.workspace_dir / "IDENTITY.md"),
             ("User", settings.workspace_dir / "USER.md"),
             ("Agents Guide", settings.workspace_dir / "AGENTS.md"),
-            ("Long-term Memory", settings.memory_dir / "MEMORY.md"),
         ]
 
     def _read_text(self, path: Path) -> str:
