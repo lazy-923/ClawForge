@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import uuid
 from pathlib import Path
+from typing import Any
 
 from backend.config import settings
 from backend.graph.memory_indexer import memory_indexer
@@ -33,11 +35,33 @@ class MemoryCandidateService:
         *,
         reason: str = "",
         source_session_id: str | None = None,
+        provenance: dict[str, object] | str | None = None,
+        confidence: float | None = None,
+        evidence: list[str] | None = None,
     ) -> dict[str, object]:
         clean_content = " ".join(content.split())
         if not clean_content:
             raise ValueError("Memory candidate content cannot be empty")
+        candidates = self._read_index()
+        duplicate = self._find_duplicate_candidate(candidates, clean_content, source_session_id)
         now = time.time()
+        if duplicate is not None:
+            if reason.strip() and not str(duplicate.get("reason", "")).strip():
+                duplicate["reason"] = reason.strip()
+            if source_session_id and not duplicate.get("source_session_id"):
+                duplicate["source_session_id"] = source_session_id
+            if provenance is not None and not duplicate.get("provenance"):
+                duplicate["provenance"] = provenance
+            if confidence is not None:
+                duplicate["confidence"] = max(float(duplicate.get("confidence", 0.0) or 0.0), float(confidence))
+            if evidence:
+                merged_evidence = self._merge_evidence(duplicate.get("evidence"), evidence)
+                if merged_evidence:
+                    duplicate["evidence"] = merged_evidence
+            duplicate["updated_at"] = now
+            self._write_index(candidates)
+            return duplicate
+
         candidate = {
             "candidate_id": f"mem_{uuid.uuid4().hex[:12]}",
             "content": clean_content,
@@ -47,7 +71,12 @@ class MemoryCandidateService:
             "created_at": now,
             "updated_at": now,
         }
-        candidates = self._read_index()
+        if provenance is not None:
+            candidate["provenance"] = provenance
+        if confidence is not None:
+            candidate["confidence"] = float(confidence)
+        if evidence:
+            candidate["evidence"] = self._merge_evidence([], evidence)
         candidates.append(candidate)
         self._write_index(candidates)
         return candidate
@@ -86,6 +115,35 @@ class MemoryCandidateService:
             if item.get("candidate_id") == candidate_id:
                 return item
         raise FileNotFoundError("Memory candidate not found")
+
+    def _find_duplicate_candidate(
+        self,
+        candidates: list[dict[str, object]],
+        content: str,
+        source_session_id: str | None,
+    ) -> dict[str, object] | None:
+        normalized_content = self._normalize_content(content)
+        for item in candidates:
+            if self._normalize_content(str(item.get("content", ""))) != normalized_content:
+                continue
+            return item
+        return None
+
+    def _normalize_content(self, content: str) -> str:
+        return re.sub(r"\s+", " ", content).strip().casefold()
+
+    def _merge_evidence(self, existing: object, new_items: list[str]) -> list[str]:
+        merged: list[str] = []
+        if isinstance(existing, list):
+            for item in existing:
+                clean_item = " ".join(str(item).split()).strip()
+                if clean_item and clean_item not in merged:
+                    merged.append(clean_item)
+        for item in new_items:
+            clean_item = " ".join(str(item).split()).strip()
+            if clean_item and clean_item not in merged:
+                merged.append(clean_item)
+        return merged
 
     def _append_to_memory(self, content: str) -> None:
         memory_path = settings.memory_dir / "MEMORY.md"

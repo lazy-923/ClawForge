@@ -4,6 +4,7 @@ import shutil
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -13,6 +14,7 @@ from backend.graph.memory_indexer import memory_indexer
 from backend.graph.memory_candidate_service import memory_candidate_service
 from backend.graph.prompt_builder import prompt_builder
 from backend.graph.session_manager import session_manager
+from backend.graph.session_compactor import session_compactor
 
 
 class MemorySessionTestCase(unittest.TestCase):
@@ -77,6 +79,32 @@ class MemorySessionTestCase(unittest.TestCase):
         self.assertIn("[Session Summary]", history[0]["content"])
         self.assertEqual(len(history), settings.session_history_max_messages + 1)
         self.assertEqual(history[-1]["content"], f"message {settings.session_history_max_messages + 4}")
+
+    def test_session_summary_uses_compactor_and_fallback(self) -> None:
+        session_id, _ = session_manager.ensure_session(f"memory_compactor_{uuid.uuid4().hex[:8]}")
+        self._created_sessions.append(session_id)
+
+        with patch.object(session_compactor, "compact_session_summary", return_value="LLM compacted summary") as mocked_compactor:
+            for index in range(settings.session_history_max_messages + 2):
+                session_manager.save_message(session_id, "user", f"message {index}")
+
+        payload = session_manager.read_session(session_id)
+        self.assertEqual(payload["summary"], "LLM compacted summary")
+        self.assertEqual(payload["summarized_message_count"], 2)
+        mocked_compactor.assert_called()
+
+        overflow_messages = [{"role": "user", "content": "overflow alpha"}]
+        recent_messages = [{"role": "assistant", "content": "recent beta"}]
+        with patch.object(session_compactor, "llm", None):
+            fallback_summary = session_compactor.compact_session_summary(
+                "previous summary",
+                overflow_messages,
+                recent_messages,
+            )
+        self.assertEqual(
+            fallback_summary,
+            session_compactor.build_rule_summary("previous summary", overflow_messages),
+        )
 
     def test_invalid_session_id_returns_400(self) -> None:
         response = self.client.post(

@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from backend.config import settings
+from backend.graph.session_compactor import session_compactor
 
 SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 
@@ -85,8 +86,13 @@ class SessionManager:
             return
 
         new_items = messages[summarized_count:overflow_count]
+        recent_messages = messages[-max_messages:]
         previous_summary = str(payload.get("summary", "")).strip()
-        payload["summary"] = self._build_session_summary(previous_summary, new_items)
+        payload["summary"] = session_compactor.compact_session_summary(
+            previous_summary,
+            new_items,
+            recent_messages,
+        )
         payload["summarized_message_count"] = overflow_count
         payload["summary_updated_at"] = time.time()
 
@@ -95,19 +101,7 @@ class SessionManager:
         previous_summary: str,
         messages: list[dict[str, object]],
     ) -> str:
-        lines: list[str] = []
-        if previous_summary:
-            lines.append(previous_summary)
-        for message in messages:
-            role = str(message.get("role", "message")).strip() or "message"
-            content = " ".join(str(message.get("content", "")).split())
-            if not content:
-                continue
-            lines.append(f"- {role}: {content[:settings.session_summary_message_chars]}")
-        summary = "\n".join(lines).strip()
-        if len(summary) <= settings.session_summary_max_chars:
-            return summary
-        return summary[-settings.session_summary_max_chars :].lstrip()
+        return session_compactor.build_rule_summary(previous_summary, messages)
 
     def save_message(
         self,

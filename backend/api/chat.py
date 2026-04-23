@@ -11,6 +11,7 @@ from backend.evolution.evolution_runner import evolution_runner
 from backend.gateway.gateway_manager import gateway_manager
 from backend.graph.agent import agent_manager
 from backend.graph.session_manager import session_manager
+from backend.memory_dreaming.dreaming_service import dreaming_service
 
 router = APIRouter(tags=["chat"])
 
@@ -66,6 +67,7 @@ async def chat(request: ChatRequest):
         )
         session_manager.save_message(session_id, "user", request.message)
         session_manager.save_message(session_id, "assistant", content)
+        dreaming_service.extract_candidates_for_session(session_id)
         evolution_runner.enqueue(
             session_id=session_id,
             identity_context=identity_context,
@@ -108,6 +110,7 @@ async def chat(request: ChatRequest):
                 final_content = "".join(content_parts)
                 session_manager.save_message(session_id, "user", request.message)
                 session_manager.save_message(session_id, "assistant", final_content)
+                dreaming_service.extract_candidates_for_session(session_id)
                 evolution_runner.enqueue(
                     session_id=session_id,
                     identity_context=identity_context,

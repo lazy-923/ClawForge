@@ -399,6 +399,7 @@ ClawForge 的记忆不是单一概念，而是三层结构。
 - 保存用户消息与助手消息
 - 为后续轮次提供最近窗口内的历史
 - 当历史超过 `SESSION_HISTORY_MAX_MESSAGES` 时，自动把溢出的旧消息压缩进 `summary`
+- 压缩优先走 `backend/graph/session_compactor.py`，LLM 不可用时会稳定回退到规则摘要
 - 截断后会把 `summary` 作为 `[Session Summary]` 补充给 Agent
 
 ### 2. Long-term Memory
@@ -411,7 +412,7 @@ backend/memory/MEMORY.md
 
 它不会作为静态 Prompt 组件全量注入，而是在每轮请求时按当前 message 做相关性检索，并把命中片段作为 `[Relevant Memory]` 补充。
 
-长期记忆写入不直接来自聊天历史。新的长期记忆需要先进入 memory candidate 队列，再通过人工治理动作 promote 后追加到 `MEMORY.md`。
+长期记忆写入不直接来自聊天历史。新的长期记忆会先由 memory dreaming 自动抽取为 pending memory candidate，再通过人工治理动作 promote 后追加到 `MEMORY.md`。
 
 ### 3. Knowledge Memory
 
@@ -529,6 +530,8 @@ POST /api/memory/candidates
 -> append to MEMORY.md
 -> rebuild memory index
 ```
+
+其中，`POST /api/chat` 在保存 user / assistant 消息后会同步触发 memory dreaming，自动生成 pending candidate，但不会直接写入 `MEMORY.md`。
 
 ### Draft 生成与治理
 

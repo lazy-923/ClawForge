@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from backend.app import app
 from backend.config import settings
 from backend.evolution.evolution_runner import evolution_runner
+from backend.graph.memory_candidate_service import memory_candidate_service
 
 
 class ApiSmokeTestCase(unittest.TestCase):
@@ -19,6 +20,8 @@ class ApiSmokeTestCase(unittest.TestCase):
         cls.client = TestClient(app)
         cls._backups_dir = settings.storage_dir / f"test_backups_{uuid.uuid4().hex}"
         cls._backups_dir.mkdir(parents=True, exist_ok=True)
+        cls._original_candidate_index_path = memory_candidate_service.index_path
+        memory_candidate_service.index_path = cls._backups_dir / "memory_candidates.json"
         cls._managed_paths = [
             settings.gateway_hits_path,
             settings.draft_index_path,
@@ -26,6 +29,7 @@ class ApiSmokeTestCase(unittest.TestCase):
             settings.merge_history_path,
             settings.lineage_path,
             settings.usage_stats_path,
+            settings.memory_candidates_path,
         ]
         for path in cls._managed_paths:
             backup_path = cls._backup_path(path)
@@ -48,7 +52,10 @@ class ApiSmokeTestCase(unittest.TestCase):
                 except PermissionError:
                     pass
             elif path.exists():
-                path.unlink()
+                try:
+                    path.unlink()
+                except PermissionError:
+                    pass
 
         for path in settings.sessions_dir.glob("*.json"):
             if path.name not in cls._existing_session_files:
@@ -69,6 +76,7 @@ class ApiSmokeTestCase(unittest.TestCase):
                 shutil.rmtree(cls._backups_dir, ignore_errors=True)
         except PermissionError:
             pass
+        memory_candidate_service.index_path = cls._original_candidate_index_path
 
     @classmethod
     def _backup_path(cls, path: Path) -> Path:
