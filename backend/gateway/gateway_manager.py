@@ -26,7 +26,13 @@ class GatewayManager:
     ) -> dict[str, object]:
         query = rewrite_query(message, history)
         candidates = retrieve_skills(query)
-        selected = select_skills(candidates)
+        selection = select_skills(
+            message=message,
+            query=query,
+            history=history,
+            candidates=candidates,
+        )
+        selected = list(selection["selected_skills"])
         context = build_skill_context(selected)
         registry_service.increment_usage(
             [str(item["name"]) for item in candidates],
@@ -41,6 +47,8 @@ class GatewayManager:
             "query": query,
             "candidates": candidates,
             "selected_skills": selected,
+            "rejected_skills": selection["rejected_skills"],
+            "selection": selection,
             "context": context,
         }
         self._save_last_hit(session_id, payload)
@@ -48,7 +56,24 @@ class GatewayManager:
 
     def get_last_hit(self, session_id: str) -> dict[str, object]:
         payload = json.loads(self.hits_path.read_text(encoding="utf-8"))
-        return payload.get(session_id, {"query": "", "candidates": [], "selected_skills": [], "context": ""})
+        return payload.get(
+            session_id,
+            {
+                "query": "",
+                "candidates": [],
+                "selected_skills": [],
+                "rejected_skills": [],
+                "selection": {
+                    "selected_skills": [],
+                    "rejected_skills": [],
+                    "decision_mode": "none",
+                    "should_inject": False,
+                    "reason": "",
+                    "confidence": 0.0,
+                },
+                "context": "",
+            },
+        )
 
     def _save_last_hit(self, session_id: str, hit: dict[str, object]) -> None:
         payload = json.loads(self.hits_path.read_text(encoding="utf-8"))

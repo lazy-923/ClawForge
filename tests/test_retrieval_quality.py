@@ -5,6 +5,8 @@ import unittest
 from backend.evolution.related_skill_finder import find_related_skills
 from backend.gateway.query_rewriter import rewrite_query
 from backend.gateway.skill_retriever import retrieve_skills
+from backend.gateway.skill_selector import select_skill_injection
+from backend.gateway.skill_selector import select_skills
 from backend.graph.knowledge_indexer import knowledge_indexer
 from backend.graph.memory_indexer import memory_indexer
 from backend.retrieval.llamaindex_store import LlamaIndexStore
@@ -57,6 +59,30 @@ class RetrievalQualityTestCase(unittest.TestCase):
         self.assertTrue(
             any(field in {"description", "triggers", "goal", "workflow"} for field in hits[0]["matched_fields"])
         )
+
+    def test_skill_selector_returns_injection_decision(self) -> None:
+        hits = retrieve_skills("check weather forecast for shanghai")
+        selection = select_skill_injection(
+            message="Please check the weather forecast for Shanghai.",
+            query="weather forecast shanghai",
+            history=[],
+            candidates=hits,
+        )
+
+        self.assertIn("selected_skills", selection)
+        self.assertIn("rejected_skills", selection)
+        self.assertIn("decision_mode", selection)
+        self.assertIn("confidence", selection)
+        self.assertTrue(selection["should_inject"])
+        self.assertEqual(selection["selected_skills"][0]["name"], "get_weather")
+
+    def test_skill_selector_legacy_call_still_returns_selected_list(self) -> None:
+        hits = retrieve_skills("rewrite this summary in a professional concise style")
+        selected = select_skills(hits)
+
+        self.assertIsInstance(selected, list)
+        self.assertGreater(len(selected), 0)
+        self.assertEqual(selected[0]["name"], "professional_rewrite")
 
     def test_related_skill_finder_does_not_return_weather_for_rewrite(self) -> None:
         hits = find_related_skills(
