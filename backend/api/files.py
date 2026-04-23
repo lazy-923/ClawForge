@@ -20,10 +20,6 @@ ALLOWED_DIRECTORIES = {
     "knowledge": settings.knowledge_dir,
 }
 
-ALLOWED_FILES = {
-    settings.snapshot_path.resolve(),
-}
-
 
 class SaveFileRequest(BaseModel):
     path: str = Field(min_length=1)
@@ -32,9 +28,6 @@ class SaveFileRequest(BaseModel):
 
 def _resolve_allowed_path(raw_path: str) -> Path:
     candidate = (settings.backend_dir / raw_path).resolve()
-
-    if candidate in ALLOWED_FILES:
-        return candidate
 
     for allowed_dir in ALLOWED_DIRECTORIES.values():
         try:

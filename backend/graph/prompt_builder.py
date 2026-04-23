@@ -8,7 +8,6 @@ from backend.config import settings
 class PromptBuilder:
     def __init__(self) -> None:
         self.components = [
-            ("Skills Snapshot", settings.snapshot_path),
             ("Soul", settings.workspace_dir / "SOUL.md"),
             ("Identity", settings.workspace_dir / "IDENTITY.md"),
             ("User", settings.workspace_dir / "USER.md"),

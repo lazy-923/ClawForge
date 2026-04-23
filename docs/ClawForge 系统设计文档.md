@@ -280,7 +280,7 @@ backend/
 
 `backend/app.py` 中的 FastAPI 生命周期负责：
 
-1. 扫描技能目录，生成 `SKILLS_SNAPSHOT.md`
+1. 扫描技能目录，读取技能元数据
 2. 重建 skill / memory / knowledge 三类索引
 3. 初始化 AgentManager
 4. 在关闭时清理 `EvolutionRunner` 的挂起任务
@@ -548,7 +548,6 @@ message + recent history
 
 当前 PromptBuilder 会读取以下组件：
 
-- `backend/SKILLS_SNAPSHOT.md`
 - `backend/workspace/SOUL.md`
 - `backend/workspace/IDENTITY.md`
 - `backend/workspace/USER.md`
@@ -666,7 +665,7 @@ backend/tools/
 
 #### `skills_scanner.py`
 
-扫描 `backend/skills/*/SKILL.md`，提取 metadata，并生成 `SKILLS_SNAPSHOT.md`。
+扫描 `backend/skills/*/SKILL.md` 并提取 metadata，供 Skill Gateway 索引与技能目录使用。
 
 ### 设计说明
 
@@ -966,7 +965,7 @@ Learning Path 负责在聊天结束后异步分析交互内容，并决定是否
 - 将 Draft 变成新 skill 文件
 - 写入 `backend/skills/`
 - 更新 draft 状态
-- 刷新 snapshot / index
+- 刷新 skill index
 - 更新 usage 与 lineage
 
 #### Merge

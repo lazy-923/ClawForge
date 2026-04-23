@@ -17,7 +17,6 @@ from backend.tools.fetch_url_tool import fetch_url
 from backend.tools.python_repl_tool import run_python
 from backend.tools.read_file_tool import read_file
 from backend.tools.search_knowledge_tool import search_knowledge_base
-from backend.tools.skills_scanner import list_skill_metadata
 from backend.tools.terminal_tool import run_terminal
 
 
@@ -117,22 +116,19 @@ class AgentManager:
         activated_skill_context: str,
     ) -> str:
         prompt = prompt_builder.build(activated_skill_context)
-        skill_names = [item["name"] for item in list_skill_metadata()]
         activated_names = [item["name"] for item in activated_skills]
         memory_section = (
             "\n".join(f"- {item['text'][:120]}" for item in retrievals)
             if retrievals
             else "- No relevant memory retrieved."
         )
-        skills_section = ", ".join(skill_names) if skill_names else "none"
         selected_section = ", ".join(activated_names) if activated_names else "none"
 
         return (
             "ClawForge Phase 2 gateway baseline is active.\n\n"
             f"Received message: {message}\n"
             f"Conversation turns loaded: {len(history)}\n"
-            f"Available skills: {skills_section}\n"
-            f"Activated skills: {selected_section}\n"
+            f"Gateway-loaded skills: {selected_section}\n"
             f"Prompt length: {len(prompt)} characters\n\n"
             "Relevant memory:\n"
             f"{memory_section}\n\n"

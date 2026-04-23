@@ -100,8 +100,7 @@ ClawForge/
 │   ├── skills/                # 正式技能
 │   ├── skill_drafts/          # 技能草稿
 │   ├── skill_registry/        # 索引、统计、历史
-│   ├── storage/               # 索引和运行时状态
-│   └── SKILLS_SNAPSHOT.md     # 技能快照
+│   └── storage/               # 索引和运行时状态
 ├── frontend/
 │   └── src/
 │       └── app/               # Next.js 页面与样式
@@ -248,7 +247,7 @@ chat done
 
 启动时通过 FastAPI lifespan 完成几件初始化工作：
 
-1. 扫描 `skills/` 目录，生成 `SKILLS_SNAPSHOT.md`
+1. 扫描 `skills/` 目录，读取技能元数据
 2. 重建 skill / memory / knowledge 三类索引
 3. 初始化 AgentManager
 4. 在关闭时清理 `EvolutionRunner` 挂起任务
@@ -308,18 +307,18 @@ backend/sessions/<session_id>.json
 
 当前会读取：
 
-- `SKILLS_SNAPSHOT.md`
 - `workspace/SOUL.md`
 - `workspace/IDENTITY.md`
 - `workspace/USER.md`
 - `workspace/AGENTS.md`
 - `memory/MEMORY.md`
-- Activated Skills 上下文
+- Skill Gateway 本轮激活的 Activated Skills 上下文
 
 这样做的好处是：
 
 - 工作区文件一改，下一次请求立刻生效
-- 技能上下文、长期记忆和系统约束始终是最新的
+- 只有 Gateway 改写、检索、筛选后的相关技能进入上下文
+- 长期记忆和系统约束始终是最新的
 
 ## 5. Agent Runtime `backend/graph/agent.py`
 
@@ -445,7 +444,7 @@ backend/knowledge/
 
 此外还有一个关键辅助模块：
 
-- `skills_scanner.py`：扫描 `skills/*/SKILL.md`，提取 metadata，并生成 `SKILLS_SNAPSHOT.md`
+- `skills_scanner.py`：扫描 `skills/*/SKILL.md` 并提取 metadata，供 Skill Gateway 索引与技能目录使用
 
 工具系统的核心意义是：
 

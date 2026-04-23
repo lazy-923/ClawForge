@@ -54,7 +54,6 @@ class Settings:
     workspace_dir: Path = backend_dir / "workspace"
     storage_dir: Path = backend_dir / "storage"
     knowledge_dir: Path = backend_dir / "knowledge"
-    snapshot_path: Path = backend_dir / "SKILLS_SNAPSHOT.md"
     gateway_hits_path: Path = storage_dir / "gateway_hits.json"
     skill_drafts_dir: Path = backend_dir / "skill_drafts"
     skill_registry_dir: Path = backend_dir / "skill_registry"

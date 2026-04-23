@@ -103,24 +103,6 @@ def list_skill_metadata() -> list[dict[str, object]]:
     return skills
 
 
-def _render_snapshot(skills: list[dict[str, object]]) -> str:
-    lines = ["<available_skills>"]
-    for skill in skills:
-        lines.extend(
-            [
-                "  <skill>",
-                f"    <name>{skill['name']}</name>",
-                f"    <description>{skill['description']}</description>",
-                f"    <location>{skill['location']}</location>",
-                "  </skill>",
-            ]
-        )
-    lines.append("</available_skills>")
-    return "\n".join(lines) + "\n"
-
-
 def scan_skills() -> list[dict[str, object]]:
     settings.skills_dir.mkdir(parents=True, exist_ok=True)
-    skills = list_skill_metadata()
-    settings.snapshot_path.write_text(_render_snapshot(skills), encoding="utf-8")
-    return skills
+    return list_skill_metadata()
