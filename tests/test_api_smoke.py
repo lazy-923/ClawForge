@@ -12,14 +12,15 @@ from backend.app import app
 from backend.config import settings
 from backend.evolution.evolution_runner import evolution_runner
 from backend.graph.memory_candidate_service import memory_candidate_service
+from test_utils import cleanup_test_dir
+from test_utils import make_test_dir
 
 
 class ApiSmokeTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.client = TestClient(app)
-        cls._backups_dir = settings.storage_dir / f"test_backups_{uuid.uuid4().hex}"
-        cls._backups_dir.mkdir(parents=True, exist_ok=True)
+        cls._backups_dir = make_test_dir("api_smoke")
         cls._original_candidate_index_path = memory_candidate_service.index_path
         memory_candidate_service.index_path = cls._backups_dir / "memory_candidates.json"
         cls._managed_paths = [
@@ -72,8 +73,7 @@ class ApiSmokeTestCase(unittest.TestCase):
                     pass
 
         try:
-            if cls._backups_dir.exists():
-                shutil.rmtree(cls._backups_dir, ignore_errors=True)
+            cleanup_test_dir(cls._backups_dir)
         except PermissionError:
             pass
         memory_candidate_service.index_path = cls._original_candidate_index_path
@@ -97,6 +97,7 @@ class ApiSmokeTestCase(unittest.TestCase):
         response = self.client.post(
             "/api/chat",
             json={
+                "session_id": f"api_smoke_gateway_{uuid.uuid4().hex[:8]}",
                 "message": "Please check the weather forecast for Shanghai.",
                 "stream": False,
             },
@@ -121,6 +122,7 @@ class ApiSmokeTestCase(unittest.TestCase):
         response = self.client.post(
             "/api/chat",
             json={
+                "session_id": f"api_smoke_draft_{uuid.uuid4().hex[:8]}",
                 "message": "Please summarize the release notes in a short bullet summary.",
                 "stream": False,
             },

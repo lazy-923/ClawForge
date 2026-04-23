@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import shutil
 import unittest
-import uuid
-from pathlib import Path
 
-from backend.config import settings
 from backend.evolution.related_skill_finder import find_related_skills
 from backend.gateway.query_rewriter import rewrite_query
 from backend.gateway.skill_retriever import retrieve_skills
@@ -14,6 +10,8 @@ from backend.graph.memory_indexer import memory_indexer
 from backend.retrieval.llamaindex_store import LlamaIndexStore
 from backend.tools.search_knowledge_tool import search_knowledge_base
 from backend.tools.skills_scanner import scan_skills
+from test_utils import cleanup_test_dir
+from test_utils import make_test_dir
 
 
 class RetrievalQualityTestCase(unittest.TestCase):
@@ -83,8 +81,7 @@ class RetrievalQualityTestCase(unittest.TestCase):
         self.assertGreaterEqual(float(hits[0]["governance_score"]), 0.7)
 
     def test_memory_retrieval_ignores_stop_word_only_query(self) -> None:
-        temp_dir = settings.storage_dir / f"retrieval_test_{uuid.uuid4().hex}"
-        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_dir = make_test_dir("retrieval")
         memory_path = temp_dir / "MEMORY.md"
         try:
             memory_path.write_text(
@@ -97,16 +94,7 @@ class RetrievalQualityTestCase(unittest.TestCase):
             content_results = memory_indexer.retrieve("weather concise updates")
         finally:
             memory_indexer.path = self._original_memory_path
-            if memory_path.exists():
-                try:
-                    memory_path.unlink()
-                except PermissionError:
-                    pass
-            if temp_dir.exists():
-                try:
-                    temp_dir.rmdir()
-                except OSError:
-                    pass
+            cleanup_test_dir(temp_dir)
 
         self.assertEqual(stop_word_results, [])
         self.assertGreater(len(content_results), 0)
@@ -121,11 +109,10 @@ class RetrievalQualityTestCase(unittest.TestCase):
         )
 
     def test_knowledge_search_uses_llamaindex_pipeline(self) -> None:
-        temp_dir = settings.storage_dir / f"knowledge_retrieval_test_{uuid.uuid4().hex}"
-        temp_dir.mkdir(parents=True, exist_ok=True)
+        original_store = knowledge_indexer._store
+        temp_dir = make_test_dir("knowledge_retrieval")
         persist_dir = temp_dir / "index"
         knowledge_path = temp_dir / "retrieval_test.md"
-        original_store = knowledge_indexer._store
         try:
             knowledge_path.write_text(
                 "# Ops Note\n\nShanghai weather playbook for concise incident updates.\n",
@@ -143,10 +130,10 @@ class RetrievalQualityTestCase(unittest.TestCase):
         finally:
             knowledge_indexer._store = original_store
             knowledge_indexer.rebuild_index()
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            cleanup_test_dir(temp_dir)
 
         self.assertGreater(len(results), 0)
-        self.assertTrue(any("retrieval_test_" in item["path"] for item in results))
+        self.assertTrue(any("retrieval_test.md" in item["path"] for item in results))
         self.assertTrue(
             all(item["retrieval_mode"] in {"bm25", "vector", "hybrid"} for item in results)
         )

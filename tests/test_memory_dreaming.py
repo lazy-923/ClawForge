@@ -11,14 +11,15 @@ from backend.app import app
 from backend.config import settings
 from backend.graph.memory_candidate_service import memory_candidate_service
 from backend.graph.memory_indexer import memory_indexer
+from test_utils import cleanup_test_dir
+from test_utils import make_test_dir
 
 
 class MemoryDreamingTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
         self._created_sessions: list[str] = []
-        self._backup_dir = settings.storage_dir / f"memory_dreaming_test_{uuid.uuid4().hex}"
-        self._backup_dir.mkdir(parents=True, exist_ok=True)
+        self._backup_dir = make_test_dir("memory_dreaming")
         self._original_candidate_index_path = memory_candidate_service.index_path
         memory_candidate_service.index_path = self._backup_dir / "memory_candidates.json"
         self._backup_file(settings.memory_dir / "MEMORY.md")
@@ -36,7 +37,7 @@ class MemoryDreamingTestCase(unittest.TestCase):
                 except PermissionError:
                     pass
         memory_indexer.rebuild_index()
-        shutil.rmtree(self._backup_dir, ignore_errors=True)
+        cleanup_test_dir(self._backup_dir)
 
     def _backup_file(self, path: Path) -> None:
         backup_path = self._backup_dir / f"{path.name}.bak"
@@ -58,6 +59,7 @@ class MemoryDreamingTestCase(unittest.TestCase):
         response = self.client.post(
             "/api/chat",
             json={
+                "session_id": f"memory_dreaming_chat_{uuid.uuid4().hex[:8]}",
                 "message": "Please remember that I prefer concise progress updates and short answers.",
                 "stream": False,
             },

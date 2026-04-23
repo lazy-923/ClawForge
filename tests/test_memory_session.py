@@ -15,14 +15,15 @@ from backend.graph.memory_candidate_service import memory_candidate_service
 from backend.graph.prompt_builder import prompt_builder
 from backend.graph.session_manager import session_manager
 from backend.graph.session_compactor import session_compactor
+from test_utils import cleanup_test_dir
+from test_utils import make_test_dir
 
 
 class MemorySessionTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
         self._created_sessions: list[str] = []
-        self._backup_dir = settings.storage_dir / f"memory_session_test_{uuid.uuid4().hex}"
-        self._backup_dir.mkdir(parents=True, exist_ok=True)
+        self._backup_dir = make_test_dir("memory_session")
         self._original_candidate_index_path = memory_candidate_service.index_path
         memory_candidate_service.index_path = self._backup_dir / "memory_candidates.json"
         self._backup_file(settings.memory_dir / "MEMORY.md")
@@ -40,7 +41,7 @@ class MemorySessionTestCase(unittest.TestCase):
                 except PermissionError:
                     pass
         memory_indexer.rebuild_index()
-        shutil.rmtree(self._backup_dir, ignore_errors=True)
+        cleanup_test_dir(self._backup_dir)
 
     def _backup_file(self, path: Path) -> None:
         backup_path = self._backup_dir / f"{path.name}.bak"

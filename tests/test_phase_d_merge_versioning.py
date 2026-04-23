@@ -1,23 +1,24 @@
 from __future__ import annotations
 
-import shutil
 import unittest
 import uuid
 
 from backend.config import settings
 from backend.evolution.registry_service import RegistryService
 from backend.evolution.skill_merger import merge_draft_into_skill
+from test_utils import cleanup_test_dir
+from test_utils import make_test_dir
 
 
 class PhaseDMergeVersioningTestCase(unittest.TestCase):
     def test_merge_draft_into_skill_writes_structured_patch(self) -> None:
         skill_name = f"phase_d_skill_{uuid.uuid4().hex[:8]}"
-        temp_root = settings.storage_dir / f"phase_d_skill_test_{uuid.uuid4().hex}"
+        original_skills_dir = settings.skills_dir
+        temp_root = make_test_dir("phase_d_skill")
         temp_skills_dir = temp_root / "skills"
         skill_dir = temp_skills_dir / skill_name
         skill_dir.mkdir(parents=True, exist_ok=True)
         skill_path = skill_dir / "SKILL.md"
-        original_skills_dir = settings.skills_dir
         try:
             object.__setattr__(settings, "skills_dir", temp_skills_dir)
             skill_path.write_text(
@@ -67,7 +68,7 @@ class PhaseDMergeVersioningTestCase(unittest.TestCase):
             merged_content = skill_path.read_text(encoding="utf-8")
         finally:
             object.__setattr__(settings, "skills_dir", original_skills_dir)
-            shutil.rmtree(temp_root, ignore_errors=True)
+            cleanup_test_dir(temp_root)
 
         self.assertEqual(result["old_version"], "0.1.0")
         self.assertEqual(result["new_version"], "0.1.1")
@@ -81,8 +82,7 @@ class PhaseDMergeVersioningTestCase(unittest.TestCase):
         self.assertIn("- Version: 0.1.0 -> 0.1.1", merged_content)
 
     def test_registry_service_returns_sorted_merge_history_and_lineage(self) -> None:
-        temp_dir = settings.storage_dir / f"phase_d_registry_test_{uuid.uuid4().hex}"
-        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_dir = make_test_dir("phase_d_registry")
         try:
             registry = RegistryService(
                 temp_dir / "skills_index.json",
@@ -124,7 +124,7 @@ class PhaseDMergeVersioningTestCase(unittest.TestCase):
             merge_history = registry.get_skill_merge_history("professional_rewrite")
             lineage = registry.get_skill_lineage("professional_rewrite")
         finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            cleanup_test_dir(temp_dir)
 
         self.assertEqual([item["from_draft"] for item in merge_history], ["draft_a", "draft_b"])
         self.assertEqual([item["version"] for item in lineage], ["0.1.1", "0.1.2"])

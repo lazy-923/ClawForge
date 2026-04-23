@@ -22,6 +22,8 @@ from backend.gateway.gateway_manager import gateway_manager
 from backend.graph.agent import agent_manager
 from backend.graph.session_manager import session_manager
 from backend.tools.skills_scanner import list_skill_metadata, scan_skills
+from test_utils import cleanup_test_dir
+from test_utils import make_test_dir
 
 
 TURN_SCENARIOS = [
@@ -50,7 +52,7 @@ TURN_SCENARIOS = [
 
 class LocalBackendRunner:
     def __init__(self) -> None:
-        self.backups_dir = settings.storage_dir / f"local_runner_backups_{uuid.uuid4().hex}"
+        self.backups_dir = make_test_dir("local_runner")
         self.managed_paths = [
             settings.gateway_hits_path,
             settings.draft_index_path,
@@ -125,8 +127,7 @@ class LocalBackendRunner:
                     pass
 
         try:
-            if self.backups_dir.exists():
-                shutil.rmtree(self.backups_dir, ignore_errors=True)
+            cleanup_test_dir(self.backups_dir)
         except PermissionError:
             pass
 
