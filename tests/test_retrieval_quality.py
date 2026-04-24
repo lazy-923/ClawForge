@@ -134,6 +134,41 @@ class RetrievalQualityTestCase(unittest.TestCase):
             all(item["retrieval_mode"] in {"bm25", "vector", "hybrid"} for item in content_results)
         )
 
+    def test_memory_retrieval_uses_structured_memory_records(self) -> None:
+        temp_dir = make_test_dir("structured_memory_retrieval")
+        memory_path = temp_dir / "MEMORY.md"
+        try:
+            memory_path.write_text(
+                "\n".join(
+                    [
+                        "# Memory",
+                        "",
+                        "## Governed Memory",
+                        "",
+                        "### Memory: concise_progress_updates",
+                        "Memory ID: mem_concise_progress_updates",
+                        "Type: preference",
+                        "Scope: global",
+                        "Keywords: concise, progress updates, short answers, brief summaries",
+                        "When to apply: when giving progress updates or summaries",
+                        "Memory: The user prefers concise progress updates and short answers.",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            memory_indexer.path = memory_path
+
+            results = memory_indexer.retrieve("brief progress summary", top_k=3)
+        finally:
+            memory_indexer.path = self._original_memory_path
+            cleanup_test_dir(temp_dir)
+
+        self.assertGreater(len(results), 0)
+        self.assertEqual(results[0]["memory_id"], "mem_concise_progress_updates")
+        self.assertEqual(results[0]["memory_type"], "preference")
+        self.assertIn("short answers", results[0]["text"])
+
     def test_knowledge_search_uses_llamaindex_pipeline(self) -> None:
         original_store = knowledge_indexer._store
         temp_dir = make_test_dir("knowledge_retrieval")

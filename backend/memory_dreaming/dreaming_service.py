@@ -19,6 +19,21 @@ def _clean_text(value: object, *, limit: int | None = None) -> str:
     return text
 
 
+def _has_durable_instruction_signal(text: str) -> bool:
+    patterns = (
+        r"\bremember\b",
+        r"\balways\b",
+        r"\bnever\b",
+        r"\bcall me\b",
+        r"\buse\b",
+        r"\bavoid\b",
+        r"\bwhenever\b",
+        r"\bfor future\b",
+        r"\bfrom now on\b",
+    )
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
+
+
 class DreamingService:
     def __init__(self) -> None:
         self.llm: ChatOpenAI | None = None
@@ -52,19 +67,21 @@ class DreamingService:
             confidence = self._coerce_confidence(candidate.get("confidence"))
             if confidence < settings.dreaming_min_confidence:
                 continue
-            created.append(
-                memory_candidate_service.create_candidate(
-                    content,
-                    reason=_clean_text(candidate.get("reason", "")),
-                    source_session_id=session_id,
-                    provenance=candidate.get("provenance") or {
-                        "source": "session_dreaming",
-                        "session_id": session_id,
-                    },
-                    confidence=confidence,
-                    evidence=self._coerce_evidence(candidate.get("evidence")),
-                )
+            created_candidate = memory_candidate_service.create_candidate(
+                content,
+                reason=_clean_text(candidate.get("reason", "")),
+                source_session_id=session_id,
+                provenance=candidate.get("provenance") or {
+                    "source": "session_dreaming",
+                    "session_id": session_id,
+                },
+                confidence=confidence,
+                evidence=self._coerce_evidence(candidate.get("evidence")),
             )
+            promoted = memory_candidate_service.auto_promote_candidate(
+                str(created_candidate["candidate_id"])
+            )
+            created.append(promoted or created_candidate)
         return created
 
     def _llm_candidates(
@@ -148,7 +165,8 @@ class DreamingService:
                         },
                     }
                 )
-        elif any(keyword in lowered for keyword in ("remember", "always", "never", "call me", "use ", "avoid ")):
+
+        if _has_durable_instruction_signal(joined):
             user_messages = [
                 _clean_text(item.get("content", ""), limit=180)
                 for item in recent_messages
@@ -165,6 +183,27 @@ class DreamingService:
                         "provenance": {
                             "source": "heuristic",
                             "pattern": "durable_instruction",
+                        },
+                    }
+                )
+
+        if any(keyword in lowered for keyword in ("project", "decision", "architecture", "backend", "frontend", "implementation")):
+            user_messages = [
+                _clean_text(item.get("content", ""), limit=220)
+                for item in recent_messages
+                if _clean_text(item.get("role", "")).casefold() == "user"
+            ]
+            if user_messages:
+                content = user_messages[-1]
+                candidates.append(
+                    {
+                        "content": content,
+                        "reason": "Detected durable project context in the latest session.",
+                        "confidence": 0.62,
+                        "evidence": [content],
+                        "provenance": {
+                            "source": "heuristic",
+                            "pattern": "project_context",
                         },
                     }
                 )

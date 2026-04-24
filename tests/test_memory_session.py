@@ -141,6 +141,10 @@ class MemorySessionTestCase(unittest.TestCase):
         self.assertEqual(promote_response.json()["status"], "promoted")
 
         updated_memory_text = (settings.memory_dir / "MEMORY.md").read_text(encoding="utf-8")
+        self.assertIn("### Memory:", updated_memory_text)
+        self.assertIn(f"Memory ID: {candidate['candidate_id']}", updated_memory_text)
+        self.assertIn("Type: preference", updated_memory_text)
+        self.assertIn("Keywords:", updated_memory_text)
         self.assertIn("The user prefers concise progress updates.", updated_memory_text)
 
 

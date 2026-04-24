@@ -61,12 +61,15 @@ ClawForge 面向的是一种可长期使用、可持续演进的本地 Agent 工
 - Chat / Sessions / Files / Gateway / Drafts / Skills API
 - Session 持久化
 - Prompt 组装
-- Memory 检索
+- 结构化 Memory Record 写入与检索
+- Memory Dreaming 候选生成与高置信自动晋升
 - Knowledge 检索
 - 工具驱动 Agent 运行时
-- Skill Gateway 首版
-- Skill Draft 生成首版
-- Promote / Merge / Ignore 治理闭环
+- Skill Gateway 注入决策与命中证据记录
+- LLM + fallback 的 Skill Draft 提取
+- LLM + fallback 的 Skill Governance Judge
+- Merge Preview / Promote / Merge / Ignore 治理闭环
+- Merge Snapshot 与 Rollback API
 - Usage / Lineage / Merge History / Stale Audit
 
 ### 前端已具备
@@ -119,6 +122,9 @@ ClawForge/
 - `LLM_API_KEY`
 - `LLM_BASE_URL`
 - `LLM_MODEL`
+- `DREAMING_MIN_CONFIDENCE`
+- `DREAMING_MAX_CANDIDATES`
+- `MEMORY_AUTO_PROMOTE_MIN_CONFIDENCE`
 - `EMBEDDING_API_KEY`
 - `EMBEDDING_BASE_URL`
 - `EMBEDDING_MODEL`
@@ -268,8 +274,8 @@ API 层负责接住前端请求，并调用下层模块。
 - `sessions.py`：会话管理
 - `files.py`：文件读取与保存
 - `gateway.py`：最近一轮 skill hit 查询
-- `drafts.py`：draft 列表、详情与治理
-- `skills.py`：usage、lineage、merge-history、stale audit
+- `drafts.py`：draft 列表、详情、merge-preview 与治理
+- `skills.py`：usage、lineage、merge-history、rollback、stale audit
 - `health.py`：健康检查
 
 其中 `POST /api/chat` 是最核心的接口，它负责：
@@ -366,13 +372,14 @@ Gateway 的核心目标是：
 当前模块包括：
 
 - `evolution_runner.py`：后台异步调度
-- `draft_extractor.py`：从最近多轮对话提取 DraftCandidate
+- `draft_extractor.py`：从最近多轮对话提取 DraftCandidate，优先走 LLM，失败时回退规则提取
 - `draft_service.py`：落盘 draft 并串起相关治理逻辑
 - `related_skill_finder.py`：寻找相似正式技能
-- `skill_judge.py`：判断 add / merge / ignore
-- `skill_merger.py`：结构化合并到 skill 文件
-- `skill_versioning.py`：版本号与 rollback 保留字段
-- `promotion_service.py`：执行 promote / merge / ignore
+- `skill_judge.py`：判断 add / merge / ignore，优先走 LLM，失败时回退规则判断
+- `skill_merger.py`：生成 merge plan / preview，并结构化合并到 skill 文件
+- `skill_versioning.py`：版本号、snapshot 与 rollback 元数据
+- `promotion_service.py`：执行 promote / merge / ignore，并提供 merge preview
+- `rollback_service.py`：根据 snapshot 执行最近一次 merge 的 rollback
 - `registry_service.py`：维护 registry JSON 文件
 
 它的目标不是自动无脑写库，而是：
@@ -412,7 +419,30 @@ backend/memory/MEMORY.md
 
 它不会作为静态 Prompt 组件全量注入，而是在每轮请求时按当前 message 做相关性检索，并把命中片段作为 `[Relevant Memory]` 补充。
 
-长期记忆写入不直接来自聊天历史。新的长期记忆会先由 memory dreaming 自动抽取为 pending memory candidate，再通过人工治理动作 promote 后追加到 `MEMORY.md`。
+长期记忆写入不直接来自聊天历史。新的长期记忆会先由 memory dreaming 抽取为 memory candidate；低置信候选保留为 `pending` 等待人工 promote，高置信候选会按 `MEMORY_AUTO_PROMOTE_MIN_CONFIDENCE` 自动晋升进 `MEMORY.md`。
+
+`MEMORY.md` 当前采用结构化 record，而不是简单 bullet：
+
+```md
+### Memory: concise_progress_updates
+Memory ID: mem_xxx
+Type: preference
+Scope: global
+Keywords: concise, progress, updates, short, answers
+When to apply: when tailoring response style, depth, format, or workflow to the user
+Memory: The user prefers concise progress updates and short answers.
+Source Session: session_xxx
+Confidence: 0.86
+Reason: Detected a durable preference in the latest session context.
+Evidence:
+- ...
+```
+
+这样做的目的有三个：
+
+- 每条长期记忆都是自包含片段，便于检索命中后直接注入
+- `Keywords / Type / Scope / When to apply` 本身会参与索引，提升 BM25 和向量召回质量
+- 来源、证据和置信度留在正式记忆文件里，方便审查和后续治理
 
 ### 3. Knowledge Memory
 
@@ -474,6 +504,8 @@ backend/knowledge/
 
 这让三类检索可以共享逻辑，同时保持各自的索引边界。
 
+Memory 检索在统一底座上有一层专门适配：`memory_indexer` 会先把 `MEMORY.md` 解析成 `### Memory:` records，再把每条 record 作为独立 Document 交给 LlamaIndex / BM25。旧的简单 bullet 记忆仍会被兼容解析为 legacy records。
+
 ## 前端架构概览
 
 前端当前是一个基于 Next.js 的本地工作台。
@@ -526,12 +558,13 @@ user message
 ```text
 POST /api/memory/candidates
 -> pending memory candidate
+-> high-confidence candidates may auto-promote
 -> POST /api/memory/candidates/{candidate_id}/promote
--> append to MEMORY.md
+-> append structured memory record to MEMORY.md
 -> rebuild memory index
 ```
 
-其中，`POST /api/chat` 在保存 user / assistant 消息后会同步触发 memory dreaming，自动生成 pending candidate，但不会直接写入 `MEMORY.md`。
+其中，`POST /api/chat` 在保存 user / assistant 消息后会同步触发 memory dreaming。候选会先进入 candidate 队列；当置信度达到 `MEMORY_AUTO_PROMOTE_MIN_CONFIDENCE` 时，会自动写入 `MEMORY.md` 并重建 memory index。
 
 ### Draft 生成与治理
 
@@ -544,9 +577,12 @@ chat done
 -> write draft markdown
 -> update draft_index.json
 -> frontend 展示 draft
--> user choose promote / merge / ignore
+-> user choose promote / merge-preview / merge / ignore
 -> promotion service
+-> build merge plan
+-> snapshot old skill content before merge
 -> refresh registry and indexes
+-> optional rollback via /api/skills/{skill_name}/rollback
 ```
 
 ## 关键设计决策
@@ -558,9 +594,12 @@ chat done
 | Skill Gateway 与 Learning Path 分离 | 在线回答与长期演化职责不同 |
 | 技能是 Markdown 工件 | 保持技能可读、可编辑、可治理 |
 | memory retrieval 结果不持久化到 session | 避免会话文件膨胀 |
-| 长期记忆必须先进入 candidate 队列 | 防止聊天内容自动污染 `MEMORY.md` |
+| 长期记忆必须先进入 candidate 队列 | 让自动抽取、人工 promote 和自动晋升共用同一治理入口 |
+| 高置信 memory candidate 可自动晋升 | 在保留来源与证据的前提下放宽写入门槛，让长期记忆可以变大 |
+| `MEMORY.md` 使用结构化 record | 让长期记忆更适合检索、审查和后续治理 |
 | skill / memory / knowledge 共用统一检索底座 | 保持检索策略一致、便于演进 |
 | Promote / Merge 需要人工确认 | 防止技能库自动污染 |
+| Merge 前先生成 preview 并保存 snapshot | 让 skill 变更可审计、可回滚 |
 
 ## 当前开发重点
 

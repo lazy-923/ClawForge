@@ -37,6 +37,7 @@ Skill Gateway 与 Skill Evolution 已有首版实现
 - FastAPI 后端主应用、路由和生命周期初始化
 - 聊天主链路、会话持久化、SSE 输出
 - Prompt 文件组装体系
+- 结构化 `MEMORY.md` 长期记忆、Memory Candidate 与 record 级检索
 - Skill Gateway：rewrite、retrieval、selection、context injection、last-hit
 - Skill Evolution：draft extraction、related skill finding、judge、promote / merge / ignore
 - Skill Registry：skills index、draft index、usage、merge history、lineage
@@ -69,9 +70,9 @@ Skill Gateway 与 Skill Evolution 已有首版实现
 
 `promote / merge / ignore`、merge history、lineage、usage 等文件工件都已经存在，说明治理不是纸面功能。
 
-### 4. 当前最大短板不是缺模块，而是缺质量保障
+### 4. 当前最大短板不是缺模块，而是缺质量保障与样本评估
 
-现在继续盲目加功能，收益会越来越低；更关键的是把已完成的链路做稳、做准、做得可回归。
+基础回归测试已经开始成形，但继续盲目加功能收益仍然会越来越低；更关键的是把已完成的链路做稳、做准，并补充更真实的检索、抽取和治理样本。
 
 ---
 
@@ -146,21 +147,20 @@ ClawForge 要做的不是一个普通聊天壳，而是一个本地优先的 **S
 - judge reason 够用，但还不够强
 - merge 的结构化程度仍然有继续提升空间
 
-## 5.4 Versioning 已有记录，但还不是真正可演化
+## 5.4 Versioning 已有可执行基础，但还缺评审体验
 
-当前有 lineage、merge history、patch version 和 rollback 预留字段，但还缺：
+当前已有 lineage、merge history、patch version、merge snapshot 和最近一次 merge rollback，但还缺：
 
-- 实际可执行 rollback
 - 更清晰的 diff / history 浏览
 - 更强的版本一致性约束
 
-## 5.5 测试体系仍然是最大的工程短板
+## 5.5 测试体系已成形，但样本和回放仍不足
 
-这是当前最现实、最值得优先补的部分：
+当前已经有后端 unittest 回归网络覆盖 memory/session、retrieval、API smoke、governance、merge/versioning 等路径，但仍然缺：
 
-- 测试分散，尚未形成完整回归网络
-- 集成链路测试还不够系统
-- 临时文件和真实工作区之间的隔离还不够干净
+- 更系统的真实任务样本
+- 更细的检索质量回归
+- LLM 主路径的稳定回放样本
 - 关键决策路径缺少更明确的回放样本
 
 ---
@@ -170,7 +170,7 @@ ClawForge 要做的不是一个普通聊天壳，而是一个本地优先的 **S
 接下来的开发不应按“继续堆功能模块”的思路走，而应按下面的顺序推进：
 
 ```text
-先补工程保障
+持续补工程保障
 再提升在线命中质量
 再提升学习与治理质量
 最后补版本演化与产品体验
@@ -178,7 +178,7 @@ ClawForge 要做的不是一个普通聊天壳，而是一个本地优先的 **S
 
 原因很简单：
 
-- 没有测试保障，继续优化 A/B/C/D 只会越来越难验证
+- 没有样本和回放保障，继续优化 A/B/C/D 只会越来越难验证质量变化
 - 没有稳定的在线检索质量，后续 evolution 的判断基础也会偏
 - 没有可靠治理，就会把错误经验沉淀进技能库
 
@@ -198,10 +198,11 @@ ClawForge 要做的不是一个普通聊天壳，而是一个本地优先的 **S
 
 ### 要做的事
 
-- 补 Gateway 单元测试
-- 补 Draft 到 Governance 的集成测试
-- 补 Registry / Lineage / Merge History 一致性测试
-- 建立测试隔离策略，避免污染真实目录
+- 继续扩展 Gateway 单元测试
+- 继续扩展 Draft 到 Governance 的集成测试
+- 继续扩展 Registry / Lineage / Merge History 一致性测试
+- 保持测试隔离策略，避免污染真实目录
+- 补 Memory auto-promote、structured record、retrieval quality 的样本回归
 - 整理本地验证入口，形成固定回归执行方式
 
 ### 完成标志
@@ -225,6 +226,7 @@ ClawForge 要做的不是一个普通聊天壳，而是一个本地优先的 **S
 - 改善 hit reason 表达
 - 补充典型任务场景验证
 - 继续统一 skill / memory / knowledge 检索边界
+- 打磨 `MEMORY.md` record 级检索质量和关键词生成
 
 ### 重点场景
 
@@ -241,6 +243,7 @@ ClawForge 要做的不是一个普通聊天壳，而是一个本地优先的 **S
 - 误召回下降
 - selection 逻辑更可解释
 - 检索问题能通过测试和样本快速定位
+- 长期记忆可以变大，但不会显著污染单轮上下文
 
 ## 工作流 C：Learning Path 质量提升
 
@@ -317,7 +320,7 @@ ClawForge 要做的不是一个普通聊天壳，而是一个本地优先的 **S
 
 ### 核心目标
 
-先把系统变成“可持续回归”的状态。
+保持系统“可持续回归”，并补足真实样本覆盖。
 
 ### 交付内容
 
@@ -325,10 +328,11 @@ ClawForge 要做的不是一个普通聊天壳，而是一个本地优先的 **S
 - Draft / Governance 集成测试
 - Registry 一致性测试
 - 测试隔离与清理策略
+- Memory structured record 与 auto-promote 回归测试
 
-### 这是当前最近的目标
+### 当前状态
 
-当前开发应首先完成 M1。
+M1 的基础网络已经跑通，当前应继续补样本、回放和质量断言。
 
 ## 里程碑 M2：在线命中质量显著提升
 
@@ -373,13 +377,13 @@ ClawForge 要做的不是一个普通聊天壳，而是一个本地优先的 **S
 
 如果只看接下来最值得做的几件事，建议顺序是：
 
-### 1. 完成 M1
+### 1. 巩固 M1
 
-也就是优先把测试体系补齐到“足以支撑持续开发”的程度。
+也就是把当前 unittest 回归网络继续补成“足以评估质量变化”的样本体系。
 
-### 2. 基于测试回头继续打磨 Gateway
+### 2. 基于测试回头继续打磨 Gateway 与 Memory Retrieval
 
-先把在线命中质量再做稳一轮。
+先把在线 skill 命中质量和长期记忆检索质量再做稳一轮。
 
 ### 3. 再继续优化 Extractor / Judge / Merger
 

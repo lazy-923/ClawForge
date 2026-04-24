@@ -31,6 +31,7 @@ class ApiSmokeTestCase(unittest.TestCase):
             settings.lineage_path,
             settings.usage_stats_path,
             settings.memory_candidates_path,
+            settings.memory_dir / "MEMORY.md",
         ]
         for path in cls._managed_paths:
             backup_path = cls._backup_path(path)

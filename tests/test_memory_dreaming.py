@@ -55,7 +55,7 @@ class MemoryDreamingTestCase(unittest.TestCase):
             except PermissionError:
                 pass
 
-    def test_chat_generates_pending_candidate_without_writing_memory_md(self) -> None:
+    def test_chat_auto_promotes_high_confidence_memory_candidate(self) -> None:
         response = self.client.post(
             "/api/chat",
             json={
@@ -68,26 +68,23 @@ class MemoryDreamingTestCase(unittest.TestCase):
         payload = response.json()
         self._created_sessions.append(payload["session_id"])
 
-        candidates = memory_candidate_service.list_candidates(status="pending")
-        self.assertEqual(len(candidates), 1)
-        candidate = candidates[0]
-        self.assertEqual(candidate["status"], "pending")
-        self.assertIn("User prefers concise progress updates and short answers.", candidate["content"])
+        candidates = memory_candidate_service.list_candidates()
+        self.assertGreaterEqual(len(candidates), 1)
+        promoted_candidates = [item for item in candidates if item["status"] == "promoted"]
+        self.assertGreaterEqual(len(promoted_candidates), 1)
+        candidate = next(
+            item
+            for item in promoted_candidates
+            if "concise progress updates and short answers" in str(item["content"])
+        )
+        self.assertTrue(candidate["auto_promoted"])
         self.assertEqual(candidate["source_session_id"], payload["session_id"])
 
         memory_path = settings.memory_dir / "MEMORY.md"
         memory_text = memory_path.read_text(encoding="utf-8") if memory_path.exists() else ""
-        self.assertNotIn("concise progress updates and short answers", memory_text)
-
-        promote_response = self.client.post(
-            f"/api/memory/candidates/{candidate['candidate_id']}/promote",
-        )
-        self.assertEqual(promote_response.status_code, 200)
-        promoted = promote_response.json()
-        self.assertEqual(promoted["status"], "promoted")
-
-        updated_memory_text = memory_path.read_text(encoding="utf-8")
-        self.assertIn("User prefers concise progress updates and short answers.", updated_memory_text)
+        self.assertIn("### Memory:", memory_text)
+        self.assertIn("Type: preference", memory_text)
+        self.assertIn("User prefers concise progress updates and short answers.", memory_text)
 
 
 if __name__ == "__main__":

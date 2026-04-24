@@ -10,6 +10,7 @@ from typing import Any
 
 from backend.config import settings
 from backend.graph.memory_indexer import memory_indexer
+from backend.retrieval.text_matcher import extract_terms
 
 
 class MemoryCandidateService:
@@ -87,10 +88,28 @@ class MemoryCandidateService:
         if candidate["status"] != "pending":
             raise ValueError("Only pending memory candidates can be promoted")
 
-        self._append_to_memory(str(candidate["content"]))
+        self._append_to_memory(candidate)
         candidate["status"] = "promoted"
         candidate["updated_at"] = time.time()
         candidate["promoted_at"] = candidate["updated_at"]
+        self._write_index(candidates)
+        memory_indexer.rebuild_index()
+        return candidate
+
+    def auto_promote_candidate(self, candidate_id: str) -> dict[str, object] | None:
+        candidates = self._read_index()
+        candidate = self._find_candidate(candidates, candidate_id)
+        if candidate["status"] != "pending":
+            return candidate
+        confidence = self._coerce_confidence(candidate.get("confidence"))
+        if confidence < settings.memory_auto_promote_min_confidence:
+            return None
+
+        self._append_to_memory(candidate)
+        candidate["status"] = "promoted"
+        candidate["updated_at"] = time.time()
+        candidate["promoted_at"] = candidate["updated_at"]
+        candidate["auto_promoted"] = True
         self._write_index(candidates)
         memory_indexer.rebuild_index()
         return candidate
@@ -145,14 +164,22 @@ class MemoryCandidateService:
                 merged.append(clean_item)
         return merged
 
-    def _append_to_memory(self, content: str) -> None:
+    def _append_to_memory(self, candidate: dict[str, object]) -> None:
         memory_path = settings.memory_dir / "MEMORY.md"
         memory_path.parent.mkdir(parents=True, exist_ok=True)
-        existing = memory_path.read_text(encoding="utf-8").rstrip() if memory_path.exists() else "# Memory"
+        existing = self._normalize_memory_header(
+            memory_path.read_text(encoding="utf-8").rstrip() if memory_path.exists() else ""
+        )
+        memory_block = self._build_memory_block(candidate)
+        memory_text = str(candidate.get("content", ""))
+        duplicate_heading = self._find_existing_memory_heading(existing, memory_text)
+        if duplicate_heading is not None:
+            return
+
         section = "## Governed Memory"
         if section not in existing:
             existing = f"{existing}\n\n{section}"
-        updated = f"{existing}\n\n- {content}\n"
+        updated = f"{existing}\n\n{memory_block}\n"
         if os.name == "nt":
             memory_path.write_text(updated, encoding="utf-8")
             return
@@ -160,6 +187,118 @@ class MemoryCandidateService:
         temp_path = memory_path.with_name(f"{memory_path.stem}-{uuid.uuid4().hex}.tmp")
         temp_path.write_text(updated, encoding="utf-8")
         temp_path.replace(memory_path)
+
+    def _normalize_memory_header(self, existing: str) -> str:
+        if not existing.strip():
+            return "# Memory\n\nDurable, governed memory for the ClawForge agent."
+        legacy_placeholder = "This file will store durable long-term memory for the ClawForge agent."
+        if legacy_placeholder in existing:
+            existing = existing.replace(
+                legacy_placeholder,
+                "Durable, governed memory for the ClawForge agent.",
+            )
+        return existing.strip()
+
+    def _build_memory_block(self, candidate: dict[str, object]) -> str:
+        content = " ".join(str(candidate.get("content", "")).split())
+        memory_id = str(candidate.get("candidate_id", f"mem_{uuid.uuid4().hex[:12]}"))
+        title = self._build_memory_title(content)
+        memory_type = self._infer_memory_type(content, str(candidate.get("reason", "")))
+        keywords = self._build_keywords(content, str(candidate.get("reason", "")))
+        source_session_id = str(candidate.get("source_session_id") or "")
+        confidence = self._coerce_confidence(candidate.get("confidence"))
+        reason = " ".join(str(candidate.get("reason", "")).split())
+        evidence = self._merge_evidence([], self._coerce_string_list(candidate.get("evidence")))
+
+        lines = [
+            f"### Memory: {title}",
+            f"Memory ID: {memory_id}",
+            f"Type: {memory_type}",
+            f"Scope: {self._infer_scope(content, source_session_id)}",
+            f"Keywords: {keywords}",
+            f"When to apply: {self._build_when_to_apply(memory_type)}",
+            f"Memory: {content}",
+        ]
+        if source_session_id:
+            lines.append(f"Source Session: {source_session_id}")
+        if confidence > 0:
+            lines.append(f"Confidence: {confidence:.2f}")
+        if reason:
+            lines.append(f"Reason: {reason}")
+        if evidence:
+            lines.append("Evidence:")
+            lines.extend(f"- {item}" for item in evidence[:3])
+        return "\n".join(lines)
+
+    def _find_existing_memory_heading(self, existing: str, content: str) -> str | None:
+        normalized_content = self._normalize_content(content)
+        for match in re.finditer(r"(?m)^Memory:\s*(.+?)\s*$", existing):
+            if self._normalize_content(match.group(1)) == normalized_content:
+                return match.group(1)
+        for match in re.finditer(r"(?m)^-\s+(.+?)\s*$", existing):
+            if self._normalize_content(match.group(1)) == normalized_content:
+                return match.group(1)
+        return None
+
+    def _build_memory_title(self, content: str) -> str:
+        words = re.findall(r"[A-Za-z0-9_]+", content.lower())
+        meaningful = [word for word in words if len(word) > 2][:8]
+        title = "_".join(meaningful)
+        return title or f"memory_{uuid.uuid4().hex[:8]}"
+
+    def _infer_memory_type(self, content: str, reason: str) -> str:
+        text = f"{content} {reason}".casefold()
+        if "prefer" in text or "preference" in text:
+            return "preference"
+        instruction_patterns = (
+            r"\balways\b",
+            r"\bnever\b",
+            r"\bavoid\b",
+            r"\buse\b",
+            r"\bremember\b",
+        )
+        if any(re.search(pattern, text) for pattern in instruction_patterns):
+            return "instruction"
+        if any(marker in text for marker in ("project", "decision", "architecture", "backend", "frontend")):
+            return "project_context"
+        return "general"
+
+    def _infer_scope(self, content: str, source_session_id: str) -> str:
+        text = content.casefold()
+        if "clawforge" in text or "project" in text or "backend" in text:
+            return "clawforge"
+        if source_session_id:
+            return f"session:{source_session_id}"
+        return "global"
+
+    def _build_keywords(self, content: str, reason: str) -> str:
+        terms = extract_terms(f"{content} {reason}")
+        return ", ".join(terms) or content[:120]
+
+    def _build_when_to_apply(self, memory_type: str) -> str:
+        if memory_type == "preference":
+            return "when tailoring response style, depth, format, or workflow to the user"
+        if memory_type == "instruction":
+            return "when the user request intersects with this durable instruction"
+        if memory_type == "project_context":
+            return "when answering project, architecture, implementation, or progress questions"
+        return "when the current request is semantically related to this memory"
+
+    def _coerce_confidence(self, value: object) -> float:
+        try:
+            confidence = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if confidence < 0:
+            return 0.0
+        if confidence > 1:
+            return 1.0
+        return confidence
+
+    def _coerce_string_list(self, value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [" ".join(str(item).split()).strip() for item in value if str(item).strip()]
 
     def _read_index(self) -> list[dict[str, object]]:
         if not self.index_path.exists():

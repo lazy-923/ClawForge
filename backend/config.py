@@ -38,9 +38,10 @@ class Settings:
     llm_temperature: float = float(_read_env("LLM_TEMPERATURE", "0.2"))
     session_compaction_model: str = _read_env("SESSION_COMPACTION_MODEL", _read_env("LLM_MODEL", "qwen-plus"))
     dreaming_enabled: bool = _read_env("DREAMING_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
-    dreaming_min_confidence: float = float(_read_env("DREAMING_MIN_CONFIDENCE", "0.55"))
-    dreaming_max_candidates: int = int(_read_env("DREAMING_MAX_CANDIDATES", "3"))
+    dreaming_min_confidence: float = float(_read_env("DREAMING_MIN_CONFIDENCE", "0.45"))
+    dreaming_max_candidates: int = int(_read_env("DREAMING_MAX_CANDIDATES", "8"))
     dreaming_model: str = _read_env("DREAMING_MODEL", _read_env("LLM_MODEL", "qwen-plus"))
+    memory_auto_promote_min_confidence: float = float(_read_env("MEMORY_AUTO_PROMOTE_MIN_CONFIDENCE", "0.72"))
     embedding_api_key: str = _read_env("EMBEDDING_API_KEY", _read_env("OPENAI_API_KEY", ""))
     embedding_base_url: str = _read_env(
         "EMBEDDING_BASE_URL",
