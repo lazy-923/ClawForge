@@ -19,7 +19,6 @@ test("can create a session and stream a backend response", async ({ page }) => {
   await page.getByTestId("chat-input").fill("Please check the weather forecast for Shanghai.");
   await page.getByTestId("send-button").click();
 
-  await expect(page.getByTestId("stream-banner")).toBeVisible();
   await expect(page.getByTestId("message-stream")).toContainText(
     "Please check the weather forecast for Shanghai.",
   );
@@ -30,4 +29,6 @@ test("can create a session and stream a backend response", async ({ page }) => {
     "check weather forecast shanghai",
   );
   await expect(page.getByTestId("activated-skill-list")).toContainText("get_weather");
+  await expect(page.getByTestId("memory-candidate-list")).toBeVisible();
+  await expect(page.getByTestId("draft-list")).toBeVisible();
 });

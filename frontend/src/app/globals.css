@@ -34,7 +34,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input {
   font: inherit;
 }
 
@@ -98,7 +99,8 @@ button {
 .session-list,
 .skill-list,
 .draft-list,
-.catalog-list {
+.catalog-list,
+.memory-list {
   padding-inline: 24px;
 }
 
@@ -150,7 +152,8 @@ button {
 .session-list,
 .skill-list,
 .draft-list,
-.catalog-list {
+.catalog-list,
+.memory-list {
   display: grid;
   gap: 12px;
   padding-bottom: 24px;
@@ -159,7 +162,8 @@ button {
 .session-card,
 .skill-card,
 .draft-card,
-.catalog-card {
+.catalog-card,
+.memory-card {
   border-radius: 18px;
   border: 1px solid var(--line);
   background: var(--panel-strong);
@@ -175,14 +179,16 @@ button {
 .session-card strong,
 .skill-card strong,
 .draft-card strong,
-.catalog-card strong {
+.catalog-card strong,
+.memory-card strong {
   font-size: 0.98rem;
 }
 
 .session-card span,
 .skill-card span,
 .draft-card span,
-.catalog-card span {
+.catalog-card span,
+.memory-card span {
   color: var(--muted);
   font-size: 0.84rem;
 }
@@ -233,7 +239,7 @@ button {
 }
 
 .stream-banner,
-.draft-banner {
+.retrieval-banner {
   margin: 0 24px 12px;
   border-radius: 16px;
   padding: 12px 16px;
@@ -246,10 +252,24 @@ button {
   color: var(--accent);
 }
 
-.draft-banner {
+.retrieval-banner {
   border: 1px solid rgba(210, 139, 71, 0.24);
   background: rgba(210, 139, 71, 0.1);
   color: #8b4f17;
+}
+
+.retrieval-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.retrieval-list span {
+  border-radius: 999px;
+  border: 1px solid rgba(210, 139, 71, 0.24);
+  background: rgba(255, 255, 255, 0.72);
+  padding: 6px 10px;
 }
 
 .message-stream {
@@ -341,7 +361,8 @@ button {
 
 .skill-card,
 .draft-card,
-.catalog-card {
+.catalog-card,
+.memory-card {
   padding: 16px;
 }
 
@@ -352,7 +373,8 @@ button {
 
 .skill-card p,
 .draft-card p,
-.catalog-card p {
+.catalog-card p,
+.memory-card p {
   margin: 8px 0;
   line-height: 1.55;
 }
@@ -380,6 +402,14 @@ button {
 
 .catalog-card-head {
   margin-bottom: 6px;
+}
+
+.detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .backend-card {
@@ -495,6 +525,29 @@ button {
   margin-top: 14px;
 }
 
+.memory-form {
+  display: grid;
+  gap: 10px;
+  padding: 0 24px 16px;
+}
+
+.memory-form textarea,
+.memory-form input {
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--text);
+  padding: 12px 14px;
+}
+
+.memory-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .action-button {
   padding-inline: 14px;
 }
@@ -534,6 +587,10 @@ button {
   font-family: "Consolas", "SFMono-Regular", monospace;
   font-size: 0.83rem;
   line-height: 1.5;
+}
+
+.merge-preview {
+  margin-top: 16px;
 }
 
 .metric-grid {
@@ -629,7 +686,12 @@ button {
   .session-list,
   .skill-list,
   .draft-list,
-  .catalog-list {
+  .catalog-list,
+  .memory-list {
+    padding-inline: 20px;
+  }
+
+  .memory-form {
     padding-inline: 20px;
   }
 

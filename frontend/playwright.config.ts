@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 const backendCommand =
-  "powershell -Command \"& 'D:\\develop\\miniconda3\\envs\\mini-claw\\python.exe' -m uvicorn backend.app:app --host 127.0.0.1 --port 8002\"";
+  "powershell -Command \"$env:LLM_API_KEY=' '; $env:DASHSCOPE_API_KEY=' '; $env:OPENAI_API_KEY=' '; & 'D:\\develop\\miniconda3\\envs\\mini-claw\\python.exe' -m uvicorn backend.app:app --host 127.0.0.1 --port 8002\"";
 
 export default defineConfig({
   testDir: "./tests/e2e",

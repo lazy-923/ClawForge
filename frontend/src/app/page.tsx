@@ -1,128 +1,27 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-
-type SessionSummary = {
-  session_id: string;
-  title: string;
-  created_at: number;
-  updated_at: number;
-  message_count: number;
-};
-
-type SessionMessage = {
-  role: string;
-  content: string;
-  timestamp?: number;
-};
-
-type SkillActivation = {
-  name: string;
-  description: string;
-  reason?: string;
-};
-
-type SkillHit = {
-  query: string;
-  selected_skills: SkillActivation[];
-};
-
-type DraftSummary = {
-  draft_id: string;
-  name: string;
-  description: string;
-  status: string;
-  source_session_id: string;
-  confidence: number;
-  recommended_action: string;
-  related_skill?: string | null;
-  judge_reason?: string;
-  created_at: string;
-};
-
-type DraftDetail = DraftSummary & {
-  content: string;
-};
-
-type GovernanceAction = "promote" | "merge" | "ignore";
-
-type SkillUsage = {
-  retrieved_count: number;
-  selected_count: number;
-  adopted_count: number;
-};
-
-type LineageEntry = {
-  skill: string;
-  version: string;
-  parent_version: string | null;
-  source_draft: string;
-  operation: string;
-  timestamp: string;
-};
-
-type MergeHistoryEntry = {
-  from_draft: string;
-  target_skill: string;
-  from_version?: string;
-  to_version?: string;
-  merged_at: string;
-  patch_summary: string;
-};
-
-type StaleSkill = {
-  skill: string;
-  retrieved_count: number;
-  selected_count: number;
-  adopted_count: number;
-  reason: string;
-};
-
-type SessionDetail = {
-  session_id: string;
-  title: string;
-  messages: SessionMessage[];
-};
-
-type ChatResponse = {
-  session_id: string;
-  content: string;
-  title: string | null;
-  skill_hit: SkillHit;
-  draft: DraftSummary | null;
-};
-
-type DraftGeneratedEvent = {
-  draft_id: string;
-  recommended_action: string;
-  related_skill: string | null;
-};
-
-type HealthStatus = {
-  name: string;
-  environment: string;
-  status: string;
-  api_prefix: string;
-  llm_provider: string;
-  llm_mode: string;
-};
-
-type FormalSkill = {
-  name: string;
-  description: string;
-  version: string;
-  location: string;
-  path: string;
-  tags: string[];
-  triggers: string[];
-  goal: string;
-  constraints: string[];
-  workflow: string[];
-};
-
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
-  "http://127.0.0.1:8002/api";
+import { API_BASE, api } from "@/lib/api";
+import { parseSseBuffer } from "@/lib/sse";
+import type {
+  ChatResponse,
+  ChatStreamTitleEvent,
+  DraftDetail,
+  DraftSummary,
+  FormalSkill,
+  GovernanceAction,
+  HealthStatus,
+  LineageEntry,
+  MemoryCandidate,
+  MergeHistoryEntry,
+  MergePreview,
+  RetrievalResult,
+  SessionMessage,
+  SessionSummary,
+  SkillHit,
+  SkillUsage,
+  StaleSkill,
+} from "@/lib/types";
 
 const DEFAULT_ERROR = "Something went wrong while talking to the backend.";
 
@@ -151,9 +50,6 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [skillHit, setSkillHit] = useState<SkillHit | null>(null);
   const [governanceDraftId, setGovernanceDraftId] = useState<string | null>(null);
-  const [streamDraftEvent, setStreamDraftEvent] = useState<DraftGeneratedEvent | null>(
-    null,
-  );
   const [isStreaming, setIsStreaming] = useState(false);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [selectedDraftDetail, setSelectedDraftDetail] = useState<DraftDetail | null>(null);
@@ -165,31 +61,22 @@ export default function HomePage() {
     MergeHistoryEntry[]
   >([]);
   const [staleSkills, setStaleSkills] = useState<StaleSkill[]>([]);
-
-  async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...(init?.headers ?? {}),
-      },
-    });
-
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(detail || DEFAULT_ERROR);
-    }
-
-    return response.json() as Promise<T>;
-  }
+  const [retrievalEvents, setRetrievalEvents] = useState<RetrievalResult[]>([]);
+  const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([]);
+  const [memoryContent, setMemoryContent] = useState("");
+  const [memoryReason, setMemoryReason] = useState("");
+  const [memoryActionId, setMemoryActionId] = useState<string | null>(null);
+  const [mergePreview, setMergePreview] = useState<MergePreview | null>(null);
+  const [previewDraftId, setPreviewDraftId] = useState<string | null>(null);
+  const [rollbackSkillName, setRollbackSkillName] = useState<string | null>(null);
 
   async function loadHealth() {
-    const nextHealth = await fetchJson<HealthStatus>("/health");
+    const nextHealth = await api.health();
     setHealthStatus(nextHealth);
   }
 
   async function loadSessions(preferredSessionId?: string | null) {
-    const sessionItems = await fetchJson<SessionSummary[]>("/sessions");
+    const sessionItems = await api.sessions();
     setSessions(sessionItems);
 
     const nextSessionId =
@@ -208,11 +95,11 @@ export default function HomePage() {
   }
 
   async function loadSessionDetail(sessionId: string) {
-    const session = await fetchJson<SessionDetail>(`/sessions/${sessionId}/messages`);
+    const session = await api.sessionMessages(sessionId);
     setMessages(session.messages ?? []);
 
     try {
-      const hit = await fetchJson<SkillHit>(`/gateway/last-hit/${sessionId}`);
+      const hit = await api.gatewayLastHit(sessionId);
       if (hit.selected_skills?.length || hit.query) {
         setSkillHit(hit);
       } else {
@@ -224,28 +111,26 @@ export default function HomePage() {
   }
 
   async function loadDrafts() {
-    const draftItems = await fetchJson<DraftSummary[]>("/drafts");
+    const draftItems = await api.drafts();
     setDrafts(draftItems);
   }
 
   async function loadCatalogSkills() {
-    const items = await fetchJson<FormalSkill[]>("/skills");
+    const items = await api.skills();
     setCatalogSkills(items);
   }
 
   async function loadDraftDetail(draftId: string) {
-    const detail = await fetchJson<DraftDetail>(`/drafts/${draftId}`);
+    const detail = await api.draftDetail(draftId);
     setSelectedDraftDetail(detail);
   }
 
   async function loadSkillInspector(skillName: string) {
     const [usage, lineage, mergeHistory, file] = await Promise.all([
-      fetchJson<SkillUsage>(`/skills/${skillName}/usage`),
-      fetchJson<LineageEntry[]>(`/skills/${skillName}/lineage`),
-      fetchJson<MergeHistoryEntry[]>(`/skills/${skillName}/merge-history`),
-      fetchJson<{ path: string; content: string }>(
-        `/files?path=${encodeURIComponent(`skills/${skillName}/SKILL.md`)}`,
-      ),
+      api.skillUsage(skillName),
+      api.skillLineage(skillName),
+      api.skillMergeHistory(skillName),
+      api.readFile(`skills/${skillName}/SKILL.md`),
     ]);
     setSelectedSkillUsage(usage);
     setSelectedSkillLineage(lineage);
@@ -254,8 +139,13 @@ export default function HomePage() {
   }
 
   async function loadStaleSkills() {
-    const items = await fetchJson<StaleSkill[]>("/skills/audit/stale");
+    const items = await api.staleSkills();
     setStaleSkills(items);
+  }
+
+  async function loadMemoryCandidates() {
+    const items = await api.memoryCandidates();
+    setMemoryCandidates(items);
   }
 
   async function bootstrap() {
@@ -268,6 +158,7 @@ export default function HomePage() {
         loadDrafts(),
         loadCatalogSkills(),
         loadStaleSkills(),
+        loadMemoryCandidates(),
       ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : DEFAULT_ERROR);
@@ -283,10 +174,7 @@ export default function HomePage() {
   async function createSession() {
     setError(null);
     try {
-      const session = await fetchJson<SessionSummary>("/sessions", {
-        method: "POST",
-        body: JSON.stringify({ title: "New Session" }),
-      });
+      const session = await api.createSession("New Session");
       await loadSessions(session.session_id);
       setSelectedDraftId(null);
       setSelectedDraftDetail(null);
@@ -315,7 +203,8 @@ export default function HomePage() {
     setMessage("");
     setIsLoading(true);
     setError(null);
-    setStreamDraftEvent(null);
+    setMergePreview(null);
+    setRetrievalEvents([]);
 
     const optimisticMessages: SessionMessage[] = [
       ...messages,
@@ -356,25 +245,17 @@ export default function HomePage() {
           break;
         }
 
-        buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split("\n\n");
-        buffer = chunks.pop() ?? "";
+        const parsed = parseSseBuffer(buffer + decoder.decode(value, { stream: true }));
+        buffer = parsed.buffer;
 
-        for (const chunk of chunks) {
-          const lines = chunk.split("\n");
-          const eventLine = lines.find((line) => line.startsWith("event: "));
-          const dataLine = lines.find((line) => line.startsWith("data: "));
-          if (!eventLine || !dataLine) {
-            continue;
-          }
-
-          const eventName = eventLine.replace("event: ", "").trim();
-          const payload = JSON.parse(dataLine.replace("data: ", "")) as
+        for (const sseEvent of parsed.events) {
+          const eventName = sseEvent.event;
+          const payload = sseEvent.data as
             | { content: string }
+            | { results: RetrievalResult[] }
             | SkillHit
             | ChatResponse
-            | DraftGeneratedEvent
-            | { session_id: string; title: string };
+            | ChatStreamTitleEvent;
 
           if (eventName === "skill_hit") {
             setSkillHit(payload as SkillHit);
@@ -397,8 +278,20 @@ export default function HomePage() {
             continue;
           }
 
-          if (eventName === "draft_generated") {
-            setStreamDraftEvent(payload as DraftGeneratedEvent);
+          if (eventName === "retrieval") {
+            setRetrievalEvents((payload as { results: RetrievalResult[] }).results ?? []);
+            continue;
+          }
+
+          if (eventName === "title") {
+            const titlePayload = payload as ChatStreamTitleEvent;
+            setSessions((current) =>
+              current.map((session) =>
+                session.session_id === titlePayload.session_id
+                  ? { ...session, title: titlePayload.title }
+                  : session,
+              ),
+            );
             continue;
           }
 
@@ -407,13 +300,6 @@ export default function HomePage() {
             streamedSessionId = donePayload.session_id;
             setActiveSessionId(donePayload.session_id);
             setSkillHit(donePayload.skill_hit);
-            if (donePayload.draft) {
-              setStreamDraftEvent({
-                draft_id: donePayload.draft.draft_id,
-                recommended_action: donePayload.draft.recommended_action,
-                related_skill: donePayload.draft.related_skill ?? null,
-              });
-            }
           }
         }
       }
@@ -424,10 +310,17 @@ export default function HomePage() {
           loadDrafts(),
           loadCatalogSkills(),
           loadStaleSkills(),
+          loadMemoryCandidates(),
           loadHealth(),
         ]);
       } else {
-        await Promise.all([loadDrafts(), loadCatalogSkills(), loadStaleSkills(), loadHealth()]);
+        await Promise.all([
+          loadDrafts(),
+          loadCatalogSkills(),
+          loadStaleSkills(),
+          loadMemoryCandidates(),
+          loadHealth(),
+        ]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : DEFAULT_ERROR);
@@ -444,26 +337,20 @@ export default function HomePage() {
     setError(null);
 
     try {
-      const path =
-        action === "promote"
-          ? `/drafts/${draft.draft_id}/promote`
-          : action === "merge"
-            ? `/drafts/${draft.draft_id}/merge`
-            : `/drafts/${draft.draft_id}/ignore`;
-
-      const init: RequestInit = {
-        method: "POST",
-      };
-
-      if (action === "merge" && draft.related_skill) {
-        init.body = JSON.stringify({ target_skill: draft.related_skill });
+      if (action === "promote") {
+        await api.promoteDraft(draft.draft_id);
+      } else if (action === "merge") {
+        await api.mergeDraft(draft.draft_id, draft.related_skill);
+      } else {
+        await api.ignoreDraft(draft.draft_id);
       }
 
-      await fetchJson<Record<string, unknown>>(path, init);
+      setMergePreview(null);
       await Promise.all([
         loadDrafts(),
         loadCatalogSkills(),
         loadStaleSkills(),
+        loadMemoryCandidates(),
         loadHealth(),
         activeSessionId ? loadSessionDetail(activeSessionId) : Promise.resolve(),
         loadSessions(activeSessionId),
@@ -475,11 +362,84 @@ export default function HomePage() {
     }
   }
 
+  async function handlePreviewMerge(draft: DraftSummary) {
+    setPreviewDraftId(draft.draft_id);
+    setError(null);
+    try {
+      const preview = await api.previewDraftMerge(draft.draft_id, draft.related_skill);
+      setMergePreview(preview);
+      setSelectedDraftId(draft.draft_id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : DEFAULT_ERROR);
+    } finally {
+      setPreviewDraftId(null);
+    }
+  }
+
+  async function handleCreateMemoryCandidate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const content = memoryContent.trim();
+    if (!content) {
+      return;
+    }
+
+    setMemoryActionId("create");
+    setError(null);
+    try {
+      await api.createMemoryCandidate(content, memoryReason.trim(), activeSessionId);
+      setMemoryContent("");
+      setMemoryReason("");
+      await loadMemoryCandidates();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : DEFAULT_ERROR);
+    } finally {
+      setMemoryActionId(null);
+    }
+  }
+
+  async function handleGovernMemory(candidate: MemoryCandidate, action: "promote" | "ignore") {
+    setMemoryActionId(candidate.candidate_id);
+    setError(null);
+    try {
+      if (action === "promote") {
+        await api.promoteMemoryCandidate(candidate.candidate_id);
+      } else {
+        await api.ignoreMemoryCandidate(candidate.candidate_id);
+      }
+      await Promise.all([loadMemoryCandidates(), loadHealth()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : DEFAULT_ERROR);
+    } finally {
+      setMemoryActionId(null);
+    }
+  }
+
+  async function handleRollbackSkill(skillName: string) {
+    setRollbackSkillName(skillName);
+    setError(null);
+    try {
+      await api.rollbackSkill(skillName);
+      await Promise.all([
+        loadCatalogSkills(),
+        loadStaleSkills(),
+        loadSkillInspector(skillName),
+        loadHealth(),
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : DEFAULT_ERROR);
+    } finally {
+      setRollbackSkillName(null);
+    }
+  }
+
   const sessionDrafts = drafts.filter((draft) => draft.source_session_id === activeSessionId);
 
   const selectedSkillMeta = useMemo(
     () => catalogSkills.find((skill) => skill.name === selectedSkillName) ?? null,
     [catalogSkills, selectedSkillName],
+  );
+  const selectedSkillCanRollback = selectedSkillMergeHistory.some(
+    (entry) => entry.merge_patch?.rollback?.status === "available",
   );
 
   useEffect(() => {
@@ -694,11 +654,17 @@ export default function HomePage() {
         {isStreaming ? (
           <div className="stream-banner" data-testid="stream-banner">Streaming response is in progress...</div>
         ) : null}
-        {streamDraftEvent ? (
-          <div className="draft-banner" data-testid="draft-banner">
-            draft generated: {streamDraftEvent.draft_id} | action:{" "}
-            {streamDraftEvent.recommended_action}
-            {streamDraftEvent.related_skill ? ` -> ${streamDraftEvent.related_skill}` : ""}
+        {retrievalEvents.length ? (
+          <div className="retrieval-banner" data-testid="retrieval-banner">
+            <strong>Retrieved memory context</strong>
+            <div className="retrieval-list">
+              {retrievalEvents.map((item) => (
+                <span key={`${item.memory_id ?? item.source}-${item.score}`}>
+                  {item.memory_title || item.memory_id || item.source} ·{" "}
+                  {item.retrieval_mode ?? "retrieval"}
+                </span>
+              ))}
+            </div>
           </div>
         ) : null}
 
@@ -766,6 +732,79 @@ export default function HomePage() {
 
         <div className="panel-section">
           <div className="section-head secondary">
+            <h2>Memory Candidates</h2>
+            <span>{memoryCandidates.length}</span>
+          </div>
+
+          <form
+            className="memory-form"
+            data-testid="memory-candidate-form"
+            onSubmit={handleCreateMemoryCandidate}
+          >
+            <textarea
+              data-testid="memory-content-input"
+              value={memoryContent}
+              onChange={(event) => setMemoryContent(event.target.value)}
+              placeholder="Capture a durable preference, project fact, or instruction..."
+              rows={3}
+            />
+            <input
+              data-testid="memory-reason-input"
+              value={memoryReason}
+              onChange={(event) => setMemoryReason(event.target.value)}
+              placeholder="Reason or evidence"
+            />
+            <button
+              className="ghost-button action-button"
+              disabled={memoryActionId === "create" || !memoryContent.trim()}
+            >
+              {memoryActionId === "create" ? "Creating..." : "Add Candidate"}
+            </button>
+          </form>
+
+          <div className="memory-list" data-testid="memory-candidate-list">
+            {memoryCandidates.slice(0, 8).map((candidate) => (
+              <article key={candidate.candidate_id} className="memory-card">
+                <div className="draft-card-head">
+                  <strong>{candidate.candidate_id}</strong>
+                  <span className={statusClassName(candidate.status)}>{candidate.status}</span>
+                </div>
+                <p>{candidate.content}</p>
+                {candidate.reason ? <span>{candidate.reason}</span> : null}
+                <div className="memory-meta">
+                  <span>{formatTime(candidate.updated_at)}</span>
+                  {typeof candidate.confidence === "number" ? (
+                    <span>confidence {candidate.confidence.toFixed(2)}</span>
+                  ) : null}
+                </div>
+                {candidate.status === "pending" ? (
+                  <div className="draft-actions">
+                    <button
+                      className="ghost-button action-button"
+                      disabled={memoryActionId === candidate.candidate_id}
+                      onClick={() => void handleGovernMemory(candidate, "promote")}
+                    >
+                      Promote
+                    </button>
+                    <button
+                      className="ghost-button action-button danger"
+                      disabled={memoryActionId === candidate.candidate_id}
+                      onClick={() => void handleGovernMemory(candidate, "ignore")}
+                    >
+                      Ignore
+                    </button>
+                  </div>
+                ) : null}
+              </article>
+            ))}
+            {!memoryCandidates.length ? (
+              <p className="empty-state">No memory candidates are waiting for review.</p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="panel-section">
+          <div className="section-head secondary">
             <h2>Session Drafts</h2>
             <span>{sessionDrafts.length}</span>
           </div>
@@ -797,6 +836,13 @@ export default function HomePage() {
                         onClick={() => void handleGovernDraft(draft, "promote")}
                       >
                         {governanceDraftId === draft.draft_id ? "Working..." : "Promote"}
+                      </button>
+                      <button
+                        className="ghost-button action-button"
+                        disabled={previewDraftId === draft.draft_id || !draft.related_skill}
+                        onClick={() => void handlePreviewMerge(draft)}
+                      >
+                        {previewDraftId === draft.draft_id ? "Previewing..." : "Preview"}
                       </button>
                       <button
                         className="ghost-button action-button"
@@ -856,6 +902,25 @@ export default function HomePage() {
                   </div>
                 </div>
                 <pre>{selectedDraftDetail.content}</pre>
+                {mergePreview?.draft_id === selectedDraftDetail.draft_id ? (
+                  <div className="merge-preview" data-testid="merge-preview">
+                    <div className="subsection-head">
+                      <h3>Merge Preview</h3>
+                      <span>
+                        {mergePreview.merge_plan.old_version} -&gt;{" "}
+                        {mergePreview.merge_plan.new_version}
+                      </span>
+                    </div>
+                    <p>{mergePreview.merge_plan.patch_summary}</p>
+                    <div className="lineage-list">
+                      {mergePreview.merge_plan.preview.changes.map((change) => (
+                        <article key={change} className="lineage-card">
+                          <span>{change}</span>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </>
             ) : (
               <p className="empty-state">Select a draft to inspect its full content.</p>
@@ -877,7 +942,19 @@ export default function HomePage() {
                     <strong>{selectedSkillMeta.name}</strong>
                     <p>{selectedSkillMeta.description}</p>
                   </div>
-                  <span className="tag-chip">{selectedSkillMeta.version}</span>
+                  <div className="detail-actions">
+                    <span className="tag-chip">{selectedSkillMeta.version}</span>
+                    <button
+                      className="ghost-button action-button danger"
+                      disabled={
+                        !selectedSkillCanRollback ||
+                        rollbackSkillName === selectedSkillMeta.name
+                      }
+                      onClick={() => void handleRollbackSkill(selectedSkillMeta.name)}
+                    >
+                      {rollbackSkillName === selectedSkillMeta.name ? "Rolling..." : "Rollback"}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="meta-grid">
