@@ -336,6 +336,7 @@ backend/api/
 ├── gateway.py
 ├── drafts.py
 ├── skills.py
+├── memory.py
 └── health.py
 ```
 
@@ -360,6 +361,7 @@ API 层只做三件事：
 - 触发 Skill Gateway
 - 调用 AgentManager
 - 保存 user / assistant 消息
+- 同步触发 memory dreaming，生成 memory candidate 并按置信度决定是否自动晋升
 - 在响应后异步触发 EvolutionRunner
 
 它是连接 Serving Path 与 Learning Path 的关键枢纽。
@@ -375,6 +377,10 @@ API 层只做三件事：
 #### `skills.py`
 
 提供 lineage、usage、merge-history、rollback、stale audit 等技能侧观察接口。
+
+#### `memory.py`
+
+提供 memory candidate 列表、创建、promote、ignore 等长期记忆治理接口。
 
 ---
 
@@ -1203,6 +1209,8 @@ frontend choose promote / merge / ignore
 
 ## 十、当前实现与目标形态的差距
 
+从当前代码看，后端已经可以作为单用户本地工作台的稳定基线使用。下面这些差距不再是“主链路是否能跑通”的问题，而是从内测基线继续走向更成熟产品时需要补齐的部分。
+
 ## 10.1 Skill Gateway
 
 当前已具备统一混合检索底座，但仍需继续增强：
@@ -1230,22 +1238,28 @@ frontend choose promote / merge / ignore
 
 下一步重点从“补基础测试”转向“补样本、回放与质量评估”，让 retrieval / extraction / governance 的质量变化可以被更细地观测。
 
+## 10.4 工具安全与产品化边界
+
+当前 tools 层已经能支撑本地可信用户使用，但 `terminal`、`python_repl`、`fetch_url` 仍是轻量安全边界，不适合直接暴露给多用户或不可信输入。
+
+Knowledge 检索已经作为 Agent 工具接入，但还没有独立的知识治理 API 与完整前端入口。工作台侧也还需要继续补齐 Memory / Draft / Skill 的审查、diff、history 和 rollback 体验。
+
 ---
 
 ## 十一、后续设计演进方向
 
-从设计角度看，后续最重要的不是继续堆新抽象，而是把当前模块继续做实。
+从设计角度看，后续最重要的不是继续堆新抽象，而是在后端基线已定的前提下，把质量评估、安全边界和工作台体验继续做实。
 
-## 11.1 先把工程保障补齐
+## 11.1 保持工程保障并补样本
 
 重点：
 
-- Gateway 单元测试
-- Draft / Governance 集成测试
-- Registry 一致性测试
+- 扩充 Gateway / Memory Retrieval 样本
+- 扩充 Draft / Governance 回放样本
+- 保持 Registry、Lineage、Merge History、Rollback 的一致性回归
 - 回放与样本验证
 
-## 11.2 再继续增强 Serving Path
+## 11.2 继续增强 Serving Path
 
 重点：
 
@@ -1253,7 +1267,7 @@ frontend choose promote / merge / ignore
 - 更稳的 retrieval / selection
 - 更强的 hit reason 可解释性
 
-## 11.3 再增强 Learning Path
+## 11.3 继续增强 Learning Path
 
 重点：
 
@@ -1261,10 +1275,11 @@ frontend choose promote / merge / ignore
 - 更可靠的 Judge
 - 更结构化的 Merger
 
-## 11.4 最后补版本与工作台体验
+## 11.4 补安全边界与工作台体验
 
 重点：
 
+- tools 权限模型与调用审计
 - diff / replay review
 - lineage 浏览体验
 - 更成熟的前端治理界面

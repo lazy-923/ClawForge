@@ -479,8 +479,10 @@ Skill Draft 应至少包含：
 - 记录 skill lineage
 - 记录 merge history
 - 支持 patch 级版本递增
-- 支持查看前后差异
+- 支持后续查看前后差异
 - 支持回滚
+
+当前代码已经具备 patch version、merge history、lineage、merge snapshot 和最近一次 merge rollback；更细粒度的 diff 浏览仍属于工作台体验增强项。
 
 ---
 
@@ -604,6 +606,12 @@ ClawForge 吸收的是“技能演化思想”，但产品形态不同：
 ### P2-3 Replay 驱动技能评估
 
 - 对高频技能做离线回放评估
+
+### 当前代码状态
+
+截至当前后端基线，P0 与 P1 的核心后端链路已经落地：Skill Gateway、Skill Draft、Governance、Promote、Merge、Versioning、Usage、Lineage、Stale Audit、Memory Candidate、Memory Dreaming 与 Rollback 都已有可运行实现。
+
+P2 仍主要是后续产品化方向，尤其是文档到技能、Replay 评估、更完整的 diff/history 浏览、Knowledge 治理入口和工具权限模型。
 
 ---
 

@@ -53,13 +53,14 @@ ClawForge 面向的是一种可长期使用、可持续演进的本地 Agent 工
 
 ## 当前能力
 
-当前仓库已经不是脚手架状态，而是具备一套可运行的 MVP 主链路。
+当前仓库已经不是脚手架状态，而是具备一套可支撑单用户本地使用的后端基线。它仍然不是多用户生产服务，但聊天、记忆、技能激活、技能治理和版本回滚已经形成可运行闭环。
 
 ### 后端已具备
 
 - FastAPI 应用入口与生命周期初始化
 - Chat / Sessions / Files / Gateway / Drafts / Skills API
-- Session 持久化
+- Memory Candidates API
+- Session 持久化与超窗 summary 压缩
 - Prompt 组装
 - 结构化 Memory Record 写入与检索
 - Memory Dreaming 候选生成与高置信自动晋升
@@ -276,6 +277,7 @@ API 层负责接住前端请求，并调用下层模块。
 - `gateway.py`：最近一轮 skill hit 查询
 - `drafts.py`：draft 列表、详情、merge-preview 与治理
 - `skills.py`：usage、lineage、merge-history、rollback、stale audit
+- `memory.py`：memory candidate 列表、创建、promote 与 ignore
 - `health.py`：健康检查
 
 其中 `POST /api/chat` 是最核心的接口，它负责：
@@ -286,7 +288,8 @@ API 层负责接住前端请求，并调用下层模块。
 4. 调用 AgentManager
 5. 以 JSON 或 SSE 返回结果
 6. 保存 user / assistant 消息
-7. 异步触发 EvolutionRunner
+7. 同步触发 memory dreaming，生成 memory candidate 并可能自动晋升高置信记忆
+8. 异步触发 EvolutionRunner
 
 ## 3. Session 管理 `backend/graph/session_manager.py`
 
@@ -603,13 +606,13 @@ chat done
 
 ## 当前开发重点
 
-当前项目最需要的不是继续堆新模块，而是把已经落地的主链路做稳。
+后端当前可以先作为单用户本地工作台基线定版。后续重点不再是继续补后端大模块，而是围绕已落地链路做产品化、质量样本和安全边界。
 
 当前主线主要有三件事：
 
-1. 补测试体系，把关键链路做成可持续回归
-2. 继续提升 Skill Gateway 的命中质量和解释性
-3. 继续提升 Draft Extractor、Judge、Merger 的治理质量
+1. 继续补真实样本与回放评估，让 Gateway、Memory Retrieval、Extractor 和 Judge 的质量变化可验证
+2. 强化工具权限、安全边界和运行观测，避免本地工具能力在非可信场景下失控
+3. 推进前端工作台产品化，补齐 Memory / Draft / Skill 治理体验与 diff / history 浏览
 
 ## 文档入口
 
