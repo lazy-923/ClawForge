@@ -10,6 +10,7 @@ export type SessionMessage = {
   role: string;
   content: string;
   timestamp?: number;
+  process_events?: AgentProcessEvent[];
 };
 
 export type SkillActivation = {

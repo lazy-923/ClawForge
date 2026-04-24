@@ -29,23 +29,20 @@ def _sse_message(event: str, data: dict[str, object]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _process_event(
+def _process_payload(
     step_id: str,
     title: str,
     status: str,
     detail: str = "",
     metadata: dict[str, object] | None = None,
-) -> str:
-    return _sse_message(
-        "process",
-        {
-            "id": step_id,
-            "title": title,
-            "status": status,
-            "detail": detail,
-            "metadata": metadata or {},
-        },
-    )
+) -> dict[str, object]:
+    return {
+        "id": step_id,
+        "title": title,
+        "status": status,
+        "detail": detail,
+        "metadata": metadata or {},
+    }
 
 
 def _build_identity_context(skill_hit: dict[str, object]) -> dict[str, object] | None:
@@ -109,7 +106,36 @@ async def chat(request: ChatRequest):
 
     async def event_generator() -> AsyncIterator[str]:
         content_parts: list[str] = []
-        yield _process_event(
+        process_events: list[dict[str, object]] = []
+
+        def record_process(payload: dict[str, object]) -> None:
+            event_id = payload.get("id")
+            for index, event in enumerate(process_events):
+                if event.get("id") == event_id:
+                    merged_metadata = {
+                        **dict(event.get("metadata", {}) or {}),
+                        **dict(payload.get("metadata", {}) or {}),
+                    }
+                    process_events[index] = {
+                        **event,
+                        **payload,
+                        "metadata": merged_metadata,
+                    }
+                    return
+            process_events.append(payload)
+
+        def emit_process(
+            step_id: str,
+            title: str,
+            status: str,
+            detail: str = "",
+            metadata: dict[str, object] | None = None,
+        ) -> str:
+            payload = _process_payload(step_id, title, status, detail, metadata)
+            record_process(payload)
+            return _sse_message("process", payload)
+
+        yield emit_process(
             "request",
             "User message received",
             "completed",
@@ -117,19 +143,19 @@ async def chat(request: ChatRequest):
             {"session_id": session_id, "history_messages": len(history)},
         )
 
-        yield _process_event("rewrite", "Rewrite query", "running")
+        yield emit_process("rewrite", "Rewrite query", "running")
         query = rewrite_query(request.message, history)
-        yield _process_event(
+        yield emit_process(
             "rewrite",
             "Rewrite query",
             "completed",
             query,
         )
 
-        yield _process_event("skill_retrieval", "Retrieve skills", "running")
+        yield emit_process("skill_retrieval", "Retrieve skills", "running")
         candidates = retrieve_skills(query)
         candidate_names = [str(item.get("name", "")) for item in candidates[:8]]
-        yield _process_event(
+        yield emit_process(
             "skill_retrieval",
             "Retrieve skills",
             "completed",
@@ -139,7 +165,7 @@ async def chat(request: ChatRequest):
             },
         )
 
-        yield _process_event("skill_selection", "Select skills", "running")
+        yield emit_process("skill_selection", "Select skills", "running")
         selection = select_skills(
             message=request.message,
             query=query,
@@ -148,7 +174,7 @@ async def chat(request: ChatRequest):
         )
         selected_skills = list(selection["selected_skills"])
         selected_names = [str(item.get("name", "")) for item in selected_skills]
-        yield _process_event(
+        yield emit_process(
             "skill_selection",
             "Select skills",
             "completed",
@@ -183,7 +209,9 @@ async def chat(request: ChatRequest):
             activated_skill_context=skill_hit["context"],
         ):
             if event["type"] == "process":
-                yield _sse_message("process", dict(event["content"]))
+                payload = dict(event["content"])
+                record_process(payload)
+                yield _sse_message("process", payload)
             elif event["type"] == "token":
                 content_parts.append(str(event["content"]))
                 yield _sse_message("token", {"content": event["content"]})
@@ -191,20 +219,36 @@ async def chat(request: ChatRequest):
                 continue
             elif event["type"] == "done":
                 final_content = "".join(content_parts)
-                session_manager.save_message(session_id, "user", request.message)
-                session_manager.save_message(session_id, "assistant", final_content)
-                dreaming_service.extract_candidates_for_session(session_id)
-                evolution_runner.enqueue(
-                    session_id=session_id,
-                    identity_context=identity_context,
+                final_response_event = _process_payload(
+                    "runtime_assistant_response",
+                    "assistant final response",
+                    "completed",
+                    final_content[:1800],
+                    {"runtime_event": "assistant_response"},
                 )
-                yield _process_event(
+                record_process(final_response_event)
+                done_event = _process_payload(
                     "done",
                     "Done",
                     "completed",
                     "Final response is ready.",
                     {"characters": len(final_content)},
                 )
+                record_process(done_event)
+                session_manager.save_message(session_id, "user", request.message)
+                session_manager.save_message(
+                    session_id,
+                    "assistant",
+                    final_content,
+                    process_events=process_events,
+                )
+                dreaming_service.extract_candidates_for_session(session_id)
+                evolution_runner.enqueue(
+                    session_id=session_id,
+                    identity_context=identity_context,
+                )
+                yield _sse_message("process", final_response_event)
+                yield _sse_message("process", done_event)
                 if title:
                     session_manager.rename_session(session_id, title)
                     yield _sse_message(

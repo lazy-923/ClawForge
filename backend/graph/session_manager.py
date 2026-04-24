@@ -115,6 +115,7 @@ class SessionManager:
         role: str,
         content: str,
         tool_calls: list[dict[str, object]] | None = None,
+        process_events: list[dict[str, object]] | None = None,
     ) -> None:
         payload = self.read_session(session_id)
         message = {
@@ -124,6 +125,8 @@ class SessionManager:
         }
         if tool_calls:
             message["tool_calls"] = tool_calls
+        if process_events:
+            message["process_events"] = process_events
         payload.setdefault("messages", []).append(message)
         self._refresh_summary(payload)
         self.write_session(session_id, payload)

@@ -223,6 +223,8 @@ export default function HomePage() {
 
   async function createSession() {
     setError(null);
+    setProcessEvents([]);
+    setIsProcessVisible(false);
     try {
       const session = await api.createSession("New Session");
       await loadSessions(session.session_id);
@@ -235,12 +237,31 @@ export default function HomePage() {
 
   async function handleSelectSession(sessionId: string) {
     setActiveSessionId(sessionId);
+    setProcessEvents([]);
     setError(null);
     try {
       await loadSessionDetail(sessionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : DEFAULT_ERROR);
     }
+  }
+
+  function appendProcessEventToCurrentAssistant(nextEvent: AgentProcessEvent) {
+    setProcessEvents((current) => {
+      const updated = upsertProcessEvent(current, nextEvent);
+      setMessages((currentMessages) => {
+        const next = [...currentMessages];
+        const lastIndex = next.length - 1;
+        if (lastIndex >= 0 && next[lastIndex].role === "assistant") {
+          next[lastIndex] = {
+            ...next[lastIndex],
+            process_events: updated,
+          };
+        }
+        return next;
+      });
+      return updated;
+    });
   }
 
   async function handleDeleteSession(session: SessionSummary) {
@@ -340,9 +361,7 @@ export default function HomePage() {
             | ChatStreamTitleEvent;
 
           if (eventName === "process") {
-            setProcessEvents((current) =>
-              upsertProcessEvent(current, payload as AgentProcessEvent),
-            );
+            appendProcessEventToCurrentAssistant(payload as AgentProcessEvent);
             continue;
           }
 
@@ -363,15 +382,13 @@ export default function HomePage() {
               }
               return next;
             });
-            setProcessEvents((current) =>
-              upsertProcessEvent(current, {
-                id: "runtime_assistant_response",
-                title: "assistant response chunks",
-                status: "running",
-                detail: previewProcessText(streamedAssistant),
-                metadata: { runtime_event: "assistant_response" },
-              }),
-            );
+            appendProcessEventToCurrentAssistant({
+              id: "runtime_assistant_response",
+              title: "assistant response chunks",
+              status: "running",
+              detail: previewProcessText(streamedAssistant),
+              metadata: { runtime_event: "assistant_response" },
+            });
             continue;
           }
 
@@ -395,15 +412,6 @@ export default function HomePage() {
             const donePayload = payload as ChatResponse;
             streamedSessionId = donePayload.session_id;
             setActiveSessionId(donePayload.session_id);
-            setProcessEvents((current) =>
-              upsertProcessEvent(current, {
-                id: "runtime_assistant_response",
-                title: "assistant final response",
-                status: "completed",
-                detail: previewProcessText(donePayload.content),
-                metadata: { runtime_event: "assistant_response" },
-              }),
-            );
           }
         }
       }
@@ -773,8 +781,13 @@ export default function HomePage() {
         {error ? <div className="error-banner" data-testid="error-banner">{error}</div> : null}
         <div className="message-stream" data-testid="message-stream">
           {messages.map((entry, index) => {
-            const showProcessForMessage =
+            const liveProcessForMessage =
               entry.role !== "user" && index === messages.length - 1 && processEvents.length > 0;
+            const messageProcessEvents = liveProcessForMessage
+              ? processEvents
+              : (entry.process_events ?? []);
+            const showProcessForMessage =
+              entry.role !== "user" && messageProcessEvents.length > 0;
             return (
               <article
                 key={`${entry.role}-${index}`}
@@ -790,10 +803,10 @@ export default function HomePage() {
                     >
                       Show agent process
                       <span>
-                        {processEvents.filter((event) => event.status === "completed").length}
+                        {messageProcessEvents.filter((event) => event.status === "completed").length}
                         {" / "}
-                        {processEvents.length}
-                        {isStreaming ? " running" : ""}
+                        {messageProcessEvents.length}
+                        {liveProcessForMessage && isStreaming ? " running" : ""}
                       </span>
                     </button>
                   </div>
@@ -804,10 +817,10 @@ export default function HomePage() {
                       <div>
                         <strong>Agent process</strong>
                         <span>
-                          {processEvents.filter((event) => event.status === "completed").length}
+                          {messageProcessEvents.filter((event) => event.status === "completed").length}
                           {" / "}
-                          {processEvents.length}
-                          {isStreaming ? " running" : ""}
+                          {messageProcessEvents.length}
+                          {liveProcessForMessage && isStreaming ? " running" : ""}
                         </span>
                       </div>
                       <button
@@ -820,7 +833,7 @@ export default function HomePage() {
                       </button>
                     </div>
                     <div className="process-log" ref={processLogRef}>
-                      {processEvents.map((event) => {
+                      {messageProcessEvents.map((event) => {
                         const metadataItems = processMetadataItems(event);
                         return (
                           <article key={event.id} className={`process-message ${event.status}`}>
