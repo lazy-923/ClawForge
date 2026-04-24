@@ -8,7 +8,6 @@ from backend.evolution.registry_service import registry_service
 from backend.gateway.query_rewriter import rewrite_query
 from backend.gateway.skill_context_builder import build_skill_context
 from backend.gateway.skill_retriever import retrieve_skills
-from backend.gateway.skill_selector import select_skills
 
 
 class GatewayManager:
@@ -26,38 +25,34 @@ class GatewayManager:
     ) -> dict[str, object]:
         query = rewrite_query(message, history)
         candidates = retrieve_skills(query)
-        selection = select_skills(
-            message=message,
-            query=query,
-            history=history,
-            candidates=candidates,
-        )
-        return self.finalize_activation(session_id, query, candidates, selection)
+        return self.finalize_activation(session_id, query, candidates)
 
     def finalize_activation(
         self,
         session_id: str,
         query: str,
         candidates: list[dict[str, object]],
-        selection: dict[str, object],
     ) -> dict[str, object]:
-        selected = list(selection["selected_skills"])
-        context = build_skill_context(selected)
+        context = build_skill_context(candidates)
         registry_service.increment_usage(
             [str(item["name"]) for item in candidates],
             "retrieved_count",
-        )
-        registry_service.increment_usage(
-            [str(item["name"]) for item in selected],
-            "selected_count",
         )
 
         payload = {
             "query": query,
             "candidates": candidates,
-            "selected_skills": selected,
-            "rejected_skills": selection["rejected_skills"],
-            "selection": selection,
+            "candidate_skills": candidates,
+            "selected_skills": [],
+            "rejected_skills": [],
+            "selection": {
+                "selected_skills": [],
+                "rejected_skills": [],
+                "decision_mode": "agent_decides",
+                "should_inject": bool(candidates),
+                "reason": "Candidate skill metadata was exposed to the agent; the agent decides whether to read and use a skill.",
+                "confidence": None,
+            },
             "context": context,
         }
         self._save_last_hit(session_id, payload)
@@ -70,6 +65,7 @@ class GatewayManager:
             {
                 "query": "",
                 "candidates": [],
+                "candidate_skills": [],
                 "selected_skills": [],
                 "rejected_skills": [],
                 "selection": {

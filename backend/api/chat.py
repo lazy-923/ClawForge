@@ -11,7 +11,6 @@ from backend.evolution.evolution_runner import evolution_runner
 from backend.gateway.gateway_manager import gateway_manager
 from backend.gateway.query_rewriter import rewrite_query
 from backend.gateway.skill_retriever import retrieve_skills
-from backend.gateway.skill_selector import select_skills
 from backend.graph.agent import agent_manager
 from backend.graph.session_manager import session_manager
 from backend.memory_dreaming.dreaming_service import dreaming_service
@@ -84,7 +83,7 @@ async def chat(request: ChatRequest):
         content = await agent_manager.collect_response(
             request.message,
             history,
-            activated_skills=skill_hit["selected_skills"],
+            activated_skills=skill_hit["candidate_skills"],
             activated_skill_context=skill_hit["context"],
         )
         session_manager.save_message(session_id, "user", request.message)
@@ -138,23 +137,13 @@ async def chat(request: ChatRequest):
             },
         )
 
-        yield _process_event("skill_selection", "Select skills for prompt", "running")
-        selection = select_skills(
-            message=request.message,
-            query=query,
-            history=history,
-            candidates=candidates,
-        )
-        selected_skills = list(selection["selected_skills"])
-        selected_names = [str(item.get("name", "")) for item in selected_skills]
         yield _process_event(
-            "skill_selection",
-            "Select skills for prompt",
+            "candidate_skills",
+            "Present candidate skills to agent",
             "completed",
-            ", ".join(selected_names) if selected_names else "No skill selected.",
+            "Agent will decide whether to read and use any candidate skill.",
             {
-                "decision_mode": selection.get("decision_mode"),
-                "confidence": selection.get("confidence"),
+                "candidate_names": [str(item.get("name", "")) for item in candidates[:8]],
             },
         )
 
@@ -162,13 +151,13 @@ async def chat(request: ChatRequest):
             session_id,
             query,
             candidates,
-            selection,
         )
         identity_context = _build_identity_context(skill_hit)
         yield _sse_message(
             "skill_hit",
             {
                 "query": skill_hit["query"],
+                "candidate_skills": skill_hit["candidate_skills"],
                 "selected_skills": skill_hit["selected_skills"],
             },
         )
@@ -183,7 +172,7 @@ async def chat(request: ChatRequest):
         async for event in agent_manager.astream(
             request.message,
             history,
-            activated_skills=skill_hit["selected_skills"],
+            activated_skills=skill_hit["candidate_skills"],
             activated_skill_context=skill_hit["context"],
         ):
             if event["type"] == "process":

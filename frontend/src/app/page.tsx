@@ -128,7 +128,7 @@ export default function HomePage() {
 
     try {
       const hit = await api.gatewayLastHit(sessionId);
-      if (hit.selected_skills?.length || hit.query) {
+      if (hit.candidate_skills?.length || hit.selected_skills?.length || hit.query) {
         setSkillHit(hit);
       } else {
         setSkillHit(null);
@@ -479,6 +479,13 @@ export default function HomePage() {
     (entry) => entry.merge_patch?.rollback?.status === "available",
   );
   const latestMemoryCandidate = memoryCandidates[0] ?? null;
+  const candidateSkills = useMemo(
+    () =>
+      skillHit?.candidate_skills?.length
+        ? skillHit.candidate_skills
+        : (skillHit?.selected_skills ?? []),
+    [skillHit],
+  );
 
   useEffect(() => {
     if (!sessionDrafts.length) {
@@ -507,7 +514,7 @@ export default function HomePage() {
 
   useEffect(() => {
     const preferredSkillNames = [
-      ...(skillHit?.selected_skills.map((skill) => skill.name) ?? []),
+      ...candidateSkills.map((skill) => skill.name),
       ...sessionDrafts
         .map((draft) => draft.related_skill)
         .filter((skill): skill is string => Boolean(skill)),
@@ -527,7 +534,7 @@ export default function HomePage() {
     if (!selectedSkillName || !uniqueSkillNames.includes(selectedSkillName)) {
       setSelectedSkillName(uniqueSkillNames[0]);
     }
-  }, [catalogSkills, skillHit, sessionDrafts, selectedSkillName]);
+  }, [catalogSkills, candidateSkills, sessionDrafts, selectedSkillName]);
 
   useEffect(() => {
     if (!selectedSkillName) {
@@ -732,17 +739,17 @@ export default function HomePage() {
       <aside className="panel inspector-panel" data-testid="inspector-panel">
         <div className="panel-section">
           <div className="section-head">
-            <h2>Activated Skills</h2>
-            <span>{skillHit?.selected_skills.length ?? 0}</span>
+            <h2>Candidate Skills</h2>
+            <span>{candidateSkills.length}</span>
           </div>
 
           <div className="info-block" data-testid="gateway-query-block">
             <small>Gateway Query</small>
-            <p>{skillHit?.query || "No skill activation yet."}</p>
+            <p>{skillHit?.query || "No skill retrieval yet."}</p>
           </div>
 
           <div className="skill-list" data-testid="activated-skill-list">
-            {skillHit?.selected_skills.map((skill) => (
+            {candidateSkills.map((skill) => (
               <button
                 key={skill.name}
                 className={selectedSkillName === skill.name ? "skill-card active" : "skill-card"}
@@ -750,11 +757,12 @@ export default function HomePage() {
               >
                 <strong>{skill.name}</strong>
                 <p>{skill.description}</p>
+                {skill.path ? <span>{skill.path}</span> : null}
                 {skill.reason ? <span>{skill.reason}</span> : null}
               </button>
             ))}
-            {!skillHit?.selected_skills.length ? (
-              <p className="empty-state">No activated skills for this session yet.</p>
+            {!candidateSkills.length ? (
+              <p className="empty-state">No candidate skills for this session yet.</p>
             ) : null}
           </div>
         </div>

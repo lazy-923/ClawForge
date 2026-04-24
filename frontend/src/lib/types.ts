@@ -15,11 +15,13 @@ export type SessionMessage = {
 export type SkillActivation = {
   name: string;
   description: string;
+  path?: string;
   reason?: string;
 };
 
 export type SkillHit = {
   query: string;
+  candidate_skills?: SkillActivation[];
   selected_skills: SkillActivation[];
 };
 

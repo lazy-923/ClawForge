@@ -210,7 +210,7 @@ class AgentManager:
             "ClawForge Phase 2 gateway baseline is active.\n\n"
             f"Received message: {message}\n"
             f"Conversation turns loaded: {len(history)}\n"
-            f"Gateway-loaded skills: {selected_section}\n"
+            f"Gateway candidate skills: {selected_section}\n"
             f"Prompt length: {len(prompt)} characters\n\n"
             "Relevant memory:\n"
             f"{memory_section}\n\n"
