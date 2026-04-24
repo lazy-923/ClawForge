@@ -32,6 +32,15 @@ class GatewayManager:
             history=history,
             candidates=candidates,
         )
+        return self.finalize_activation(session_id, query, candidates, selection)
+
+    def finalize_activation(
+        self,
+        session_id: str,
+        query: str,
+        candidates: list[dict[str, object]],
+        selection: dict[str, object],
+    ) -> dict[str, object]:
         selected = list(selection["selected_skills"])
         context = build_skill_context(selected)
         registry_service.increment_usage(

@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 
 from backend.evolution.evolution_runner import evolution_runner
 from backend.gateway.gateway_manager import gateway_manager
+from backend.gateway.query_rewriter import rewrite_query
+from backend.gateway.skill_retriever import retrieve_skills
+from backend.gateway.skill_selector import select_skills
 from backend.graph.agent import agent_manager
 from backend.graph.session_manager import session_manager
 from backend.memory_dreaming.dreaming_service import dreaming_service
@@ -24,6 +27,25 @@ class ChatRequest(BaseModel):
 
 def _sse_message(event: str, data: dict[str, object]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _process_event(
+    step_id: str,
+    title: str,
+    status: str,
+    detail: str = "",
+    metadata: dict[str, object] | None = None,
+) -> str:
+    return _sse_message(
+        "process",
+        {
+            "id": step_id,
+            "title": title,
+            "status": status,
+            "detail": detail,
+            "metadata": metadata or {},
+        },
+    )
 
 
 def _build_identity_context(skill_hit: dict[str, object]) -> dict[str, object] | None:
@@ -50,8 +72,6 @@ async def chat(request: ChatRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     history = session_manager.load_session_for_agent(session_id)
-    skill_hit = gateway_manager.activate_skills(session_id, request.message, history)
-    identity_context = _build_identity_context(skill_hit)
     title = (
         session_manager.generate_title(request.message)
         if created and not history
@@ -59,6 +79,8 @@ async def chat(request: ChatRequest):
     )
 
     if not request.stream:
+        skill_hit = gateway_manager.activate_skills(session_id, request.message, history)
+        identity_context = _build_identity_context(skill_hit)
         content = await agent_manager.collect_response(
             request.message,
             history,
@@ -87,6 +109,62 @@ async def chat(request: ChatRequest):
 
     async def event_generator() -> AsyncIterator[str]:
         content_parts: list[str] = []
+        yield _process_event(
+            "request",
+            "Receive user message",
+            "completed",
+            "Session and recent conversation history loaded.",
+            {"session_id": session_id, "history_messages": len(history)},
+        )
+
+        yield _process_event("rewrite", "Rewrite retrieval query", "running")
+        query = rewrite_query(request.message, history)
+        yield _process_event(
+            "rewrite",
+            "Rewrite retrieval query",
+            "completed",
+            query,
+        )
+
+        yield _process_event("skill_retrieval", "Retrieve matching skills", "running")
+        candidates = retrieve_skills(query)
+        yield _process_event(
+            "skill_retrieval",
+            "Retrieve matching skills",
+            "completed",
+            f"Retrieved {len(candidates)} candidate skill(s).",
+            {
+                "candidate_names": [str(item.get("name", "")) for item in candidates[:8]],
+            },
+        )
+
+        yield _process_event("skill_selection", "Select skills for prompt", "running")
+        selection = select_skills(
+            message=request.message,
+            query=query,
+            history=history,
+            candidates=candidates,
+        )
+        selected_skills = list(selection["selected_skills"])
+        selected_names = [str(item.get("name", "")) for item in selected_skills]
+        yield _process_event(
+            "skill_selection",
+            "Select skills for prompt",
+            "completed",
+            ", ".join(selected_names) if selected_names else "No skill selected.",
+            {
+                "decision_mode": selection.get("decision_mode"),
+                "confidence": selection.get("confidence"),
+            },
+        )
+
+        skill_hit = gateway_manager.finalize_activation(
+            session_id,
+            query,
+            candidates,
+            selection,
+        )
+        identity_context = _build_identity_context(skill_hit)
         yield _sse_message(
             "skill_hit",
             {
@@ -94,26 +172,53 @@ async def chat(request: ChatRequest):
                 "selected_skills": skill_hit["selected_skills"],
             },
         )
+        yield _process_event(
+            "prompt_context",
+            "Inject skill context",
+            "completed",
+            f"{len(str(skill_hit['context']))} characters of skill context prepared.",
+        )
 
+        generation_started = False
         async for event in agent_manager.astream(
             request.message,
             history,
             activated_skills=skill_hit["selected_skills"],
             activated_skill_context=skill_hit["context"],
         ):
-            if event["type"] == "token":
+            if event["type"] == "process":
+                yield _sse_message("process", dict(event["content"]))
+            elif event["type"] == "token":
+                if not generation_started:
+                    generation_started = True
+                    yield _process_event("generation", "Generate assistant response", "running")
                 content_parts.append(str(event["content"]))
                 yield _sse_message("token", {"content": event["content"]})
             elif event["type"] == "retrieval":
                 yield _sse_message("retrieval", {"results": event["results"]})
             elif event["type"] == "done":
                 final_content = "".join(content_parts)
+                if not generation_started:
+                    yield _process_event("generation", "Generate assistant response", "running")
+                yield _process_event(
+                    "generation",
+                    "Generate assistant response",
+                    "completed",
+                    f"Generated {len(final_content)} characters.",
+                )
+                yield _process_event("persistence", "Persist session updates", "running")
                 session_manager.save_message(session_id, "user", request.message)
                 session_manager.save_message(session_id, "assistant", final_content)
                 dreaming_service.extract_candidates_for_session(session_id)
                 evolution_runner.enqueue(
                     session_id=session_id,
                     identity_context=identity_context,
+                )
+                yield _process_event(
+                    "persistence",
+                    "Persist session updates",
+                    "completed",
+                    "Messages saved; memory dreaming and skill evolution queued.",
                 )
                 if title:
                     session_manager.rename_session(session_id, title)
