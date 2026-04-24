@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import Mock
+from unittest.mock import PropertyMock
+from unittest.mock import patch
 
 from backend.evolution.related_skill_finder import find_related_skills
 from backend.gateway.query_rewriter import rewrite_query
@@ -25,19 +28,63 @@ class RetrievalQualityTestCase(unittest.TestCase):
         memory_indexer.path = self._original_memory_path
 
     def test_rewrite_query_removes_common_stop_words(self) -> None:
-        query = rewrite_query(
-            "Please help me rewrite this summary for the team.",
-            [
-                {"role": "user", "content": "Please summarize the weather result for me."},
-                {"role": "assistant", "content": "Sure."},
-            ],
-        )
+        with patch("backend.gateway.query_rewriter._try_llm_rewrite_query", return_value=None):
+            query = rewrite_query(
+                "Please help me rewrite this summary for the team.",
+                [
+                    {"role": "user", "content": "Please summarize the weather result for me."},
+                    {"role": "assistant", "content": "Sure."},
+                ],
+            )
 
         self.assertIn("rewrite", query)
         self.assertIn("summary", query)
         self.assertNotIn("please", query.split())
         self.assertNotIn("the", query.split())
         self.assertNotIn("for", query.split())
+
+    def test_rewrite_query_avoids_history_for_complete_new_request(self) -> None:
+        with patch("backend.gateway.query_rewriter._try_llm_rewrite_query", return_value=None):
+            query = rewrite_query(
+                "今天喀什什么天气",
+                [
+                    {"role": "user", "content": "Please check the weather forecast for Shanghai."},
+                    {"role": "assistant", "content": "Sure."},
+                ],
+            )
+
+        self.assertIn("今天喀什什么天气", query)
+        self.assertNotIn("shanghai", query)
+
+    def test_rewrite_query_uses_history_for_elliptical_follow_up(self) -> None:
+        with patch("backend.gateway.query_rewriter._try_llm_rewrite_query", return_value=None):
+            query = rewrite_query(
+                "明天呢",
+                [
+                    {"role": "user", "content": "Please check the weather forecast for Shanghai."},
+                    {"role": "assistant", "content": "Sure."},
+                ],
+            )
+
+        self.assertIn("shanghai", query)
+        self.assertIn("明天呢", query)
+
+    def test_rewrite_query_prefers_llm_query_when_available(self) -> None:
+        with patch("backend.config.Settings.llm_is_configured", new_callable=PropertyMock) as configured:
+            configured.return_value = True
+            with patch("backend.gateway.query_rewriter.ChatOpenAI") as chat_openai:
+                llm = Mock()
+                llm.invoke.return_value = Mock(content='{"query":"today weather Kashgar","uses_history":false}')
+                chat_openai.return_value = llm
+
+                query = rewrite_query(
+                    "今天喀什什么天气",
+                    [
+                        {"role": "user", "content": "Please check the weather forecast for Shanghai."},
+                    ],
+                )
+
+        self.assertEqual(query, "today weather kashgar")
 
     def test_retrieve_skills_prioritizes_professional_rewrite(self) -> None:
         hits = retrieve_skills("rewrite this summary in a professional concise style")
