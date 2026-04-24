@@ -28,7 +28,7 @@ class PromptBuilder:
                 continue
             sections.append(f"<!-- {label} -->\n{content}")
         if activated_skill_context:
-            sections.append(f"<!-- Skill Candidates -->\n{activated_skill_context}")
+            sections.append(f"<!-- Injected Skill Metadata -->\n{activated_skill_context}")
         return "\n\n".join(sections)
 
 

@@ -109,16 +109,18 @@ class ApiSmokeTestCase(unittest.TestCase):
         self.assertIn("skill_hit", payload)
         candidate_names = [item["name"] for item in payload["skill_hit"]["candidate_skills"]]
         self.assertIn("get_weather", candidate_names)
-        self.assertEqual(payload["skill_hit"]["selected_skills"], [])
+        selected_names = [item["name"] for item in payload["skill_hit"]["selected_skills"]]
+        self.assertIn("get_weather", selected_names)
         self.assertIn("skills/get_weather/SKILL.md", payload["skill_hit"]["context"])
 
         last_hit = self.client.get(f"/api/gateway/last-hit/{payload['session_id']}")
         self.assertEqual(last_hit.status_code, 200)
-        self.assertEqual(last_hit.json()["candidate_skills"][0]["name"], "get_weather")
+        self.assertEqual(last_hit.json()["selected_skills"][0]["name"], "get_weather")
 
         usage = self.client.get("/api/skills/get_weather/usage")
         self.assertEqual(usage.status_code, 200)
         self.assertGreaterEqual(usage.json()["retrieved_count"], 1)
+        self.assertGreaterEqual(usage.json()["selected_count"], 1)
 
     def test_chat_generates_draft(self) -> None:
         response = self.client.post(
@@ -147,7 +149,7 @@ class ApiSmokeTestCase(unittest.TestCase):
         self.assertTrue(second_payload["evolution_queued"])
 
         skill_hit = second_payload["skill_hit"]
-        top_skill = skill_hit["candidate_skills"][0]
+        top_skill = skill_hit["selected_skills"][0]
         draft = asyncio.run(
             evolution_runner.run_for_session(
                 session_id=payload["session_id"],

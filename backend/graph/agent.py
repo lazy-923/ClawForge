@@ -69,13 +69,8 @@ class AgentManager:
                     "id": "memory_retrieval",
                     "title": "Retrieve memory context",
                     "status": "completed",
-                    "detail": f"Retrieved {len(retrievals)} memory item(s).",
-                    "metadata": {
-                        "sources": [
-                            item.get("memory_title") or item.get("memory_id") or item.get("source")
-                            for item in retrievals[:5]
-                        ],
-                    },
+                    "detail": "Memory retrieval completed.",
+                    "metadata": {"count": len(retrievals)},
                 },
             }
             yield {"type": "retrieval", "results": retrievals}
@@ -210,7 +205,7 @@ class AgentManager:
             "ClawForge Phase 2 gateway baseline is active.\n\n"
             f"Received message: {message}\n"
             f"Conversation turns loaded: {len(history)}\n"
-            f"Gateway candidate skills: {selected_section}\n"
+            f"Gateway injected skills: {selected_section}\n"
             f"Prompt length: {len(prompt)} characters\n\n"
             "Relevant memory:\n"
             f"{memory_section}\n\n"

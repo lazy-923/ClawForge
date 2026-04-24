@@ -6,11 +6,12 @@ def build_skill_context(skills: list[dict[str, object]]) -> str:
         return ""
 
     lines = [
-        "[Candidate Skills]",
-        "The gateway retrieved these candidate skills. You decide whether any skill is useful.",
+        "[Injected Skill Metadata]",
+        "The gateway selected these skills as relevant enough to expose to you.",
+        "You still decide whether a skill is actually useful for the current task.",
         "If you choose to use a skill, first call read_file with its path to read the full SKILL.md,",
         "then follow that skill's goal, constraints, and workflow until the task is complete.",
-        "If no candidate skill is useful, answer normally without reading a skill file.",
+        "If no injected skill is useful, answer normally without reading a skill file.",
         "",
     ]
     for skill in skills:

@@ -479,13 +479,7 @@ export default function HomePage() {
     (entry) => entry.merge_patch?.rollback?.status === "available",
   );
   const latestMemoryCandidate = memoryCandidates[0] ?? null;
-  const candidateSkills = useMemo(
-    () =>
-      skillHit?.candidate_skills?.length
-        ? skillHit.candidate_skills
-        : (skillHit?.selected_skills ?? []),
-    [skillHit],
-  );
+  const injectedSkills = useMemo(() => skillHit?.selected_skills ?? [], [skillHit]);
 
   useEffect(() => {
     if (!sessionDrafts.length) {
@@ -514,7 +508,7 @@ export default function HomePage() {
 
   useEffect(() => {
     const preferredSkillNames = [
-      ...candidateSkills.map((skill) => skill.name),
+      ...injectedSkills.map((skill) => skill.name),
       ...sessionDrafts
         .map((draft) => draft.related_skill)
         .filter((skill): skill is string => Boolean(skill)),
@@ -534,7 +528,7 @@ export default function HomePage() {
     if (!selectedSkillName || !uniqueSkillNames.includes(selectedSkillName)) {
       setSelectedSkillName(uniqueSkillNames[0]);
     }
-  }, [catalogSkills, candidateSkills, sessionDrafts, selectedSkillName]);
+  }, [catalogSkills, injectedSkills, sessionDrafts, selectedSkillName]);
 
   useEffect(() => {
     if (!selectedSkillName) {
@@ -739,17 +733,17 @@ export default function HomePage() {
       <aside className="panel inspector-panel" data-testid="inspector-panel">
         <div className="panel-section">
           <div className="section-head">
-            <h2>Candidate Skills</h2>
-            <span>{candidateSkills.length}</span>
+            <h2>Injected Skills</h2>
+            <span>{injectedSkills.length}</span>
           </div>
 
           <div className="info-block" data-testid="gateway-query-block">
             <small>Gateway Query</small>
-            <p>{skillHit?.query || "No skill retrieval yet."}</p>
+            <p>{skillHit?.query || "No skill selection yet."}</p>
           </div>
 
           <div className="skill-list" data-testid="activated-skill-list">
-            {candidateSkills.map((skill) => (
+            {injectedSkills.map((skill) => (
               <button
                 key={skill.name}
                 className={selectedSkillName === skill.name ? "skill-card active" : "skill-card"}
@@ -761,8 +755,8 @@ export default function HomePage() {
                 {skill.reason ? <span>{skill.reason}</span> : null}
               </button>
             ))}
-            {!candidateSkills.length ? (
-              <p className="empty-state">No candidate skills for this session yet.</p>
+            {!injectedSkills.length ? (
+              <p className="empty-state">No skills were selected for injection.</p>
             ) : null}
           </div>
         </div>
