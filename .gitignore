@@ -20,6 +20,8 @@ frontend/test-results/
 backend/storage/local_runner*/
 backend/storage/retrieval_test_*/
 backend/sessions/*.json
+backend/memory/*
+!backend/memory/.gitkeep
 backend/storage/
 backend/storage/test_backups*/
 backend/skill_drafts/*.md
