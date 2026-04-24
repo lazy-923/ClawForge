@@ -111,34 +111,35 @@ async def chat(request: ChatRequest):
         content_parts: list[str] = []
         yield _process_event(
             "request",
-            "Receive user message",
+            "User message received",
             "completed",
             "Session and recent conversation history loaded.",
             {"session_id": session_id, "history_messages": len(history)},
         )
 
-        yield _process_event("rewrite", "Rewrite retrieval query", "running")
+        yield _process_event("rewrite", "Rewrite query", "running")
         query = rewrite_query(request.message, history)
         yield _process_event(
             "rewrite",
-            "Rewrite retrieval query",
+            "Rewrite query",
             "completed",
             query,
         )
 
-        yield _process_event("skill_retrieval", "Retrieve matching skills", "running")
+        yield _process_event("skill_retrieval", "Retrieve skills", "running")
         candidates = retrieve_skills(query)
+        candidate_names = [str(item.get("name", "")) for item in candidates[:8]]
         yield _process_event(
             "skill_retrieval",
-            "Retrieve matching skills",
+            "Retrieve skills",
             "completed",
-            f"Retrieved {len(candidates)} candidate skill(s).",
+            ", ".join(candidate_names) if candidate_names else "No candidate skills retrieved.",
             {
-                "candidate_names": [str(item.get("name", "")) for item in candidates[:8]],
+                "candidate_names": candidate_names,
             },
         )
 
-        yield _process_event("skill_selection", "Select skills for prompt", "running")
+        yield _process_event("skill_selection", "Select skills", "running")
         selection = select_skills(
             message=request.message,
             query=query,
@@ -149,7 +150,7 @@ async def chat(request: ChatRequest):
         selected_names = [str(item.get("name", "")) for item in selected_skills]
         yield _process_event(
             "skill_selection",
-            "Select skills for prompt",
+            "Select skills",
             "completed",
             ", ".join(selected_names) if selected_names else "No skill selected for injection.",
             {
@@ -174,14 +175,7 @@ async def chat(request: ChatRequest):
                 "selected_skills": skill_hit["selected_skills"],
             },
         )
-        yield _process_event(
-            "prompt_context",
-            "Inject skill context",
-            "completed",
-            f"{len(str(skill_hit['context']))} characters of skill context prepared.",
-        )
 
-        generation_started = False
         async for event in agent_manager.astream(
             request.message,
             history,
@@ -191,24 +185,12 @@ async def chat(request: ChatRequest):
             if event["type"] == "process":
                 yield _sse_message("process", dict(event["content"]))
             elif event["type"] == "token":
-                if not generation_started:
-                    generation_started = True
-                    yield _process_event("generation", "Generate assistant response", "running")
                 content_parts.append(str(event["content"]))
                 yield _sse_message("token", {"content": event["content"]})
             elif event["type"] == "retrieval":
-                yield _sse_message("retrieval", {"results": event["results"]})
+                continue
             elif event["type"] == "done":
                 final_content = "".join(content_parts)
-                if not generation_started:
-                    yield _process_event("generation", "Generate assistant response", "running")
-                yield _process_event(
-                    "generation",
-                    "Generate assistant response",
-                    "completed",
-                    f"Generated {len(final_content)} characters.",
-                )
-                yield _process_event("persistence", "Persist session updates", "running")
                 session_manager.save_message(session_id, "user", request.message)
                 session_manager.save_message(session_id, "assistant", final_content)
                 dreaming_service.extract_candidates_for_session(session_id)
@@ -217,10 +199,11 @@ async def chat(request: ChatRequest):
                     identity_context=identity_context,
                 )
                 yield _process_event(
-                    "persistence",
-                    "Persist session updates",
+                    "done",
+                    "Done",
                     "completed",
-                    "Messages saved; memory dreaming and skill evolution queued.",
+                    "Final response is ready.",
+                    {"characters": len(final_content)},
                 )
                 if title:
                     session_manager.rename_session(session_id, title)

@@ -509,7 +509,7 @@ input:focus-visible {
 
 .process-item {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
+  grid-template-columns: 18px minmax(0, 1fr);
   gap: 10px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
@@ -519,22 +519,24 @@ input:focus-visible {
   border-bottom: 0;
 }
 
-.process-dot {
-  width: 7px;
-  height: 7px;
-  margin-top: 7px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: var(--surface);
+.process-arrow {
+  margin-top: 3px;
+  color: var(--faint);
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  font-size: 0.76rem;
+  line-height: 1.5;
 }
 
-.process-item.running .process-dot {
-  border-color: var(--text);
-  background: var(--text);
+.process-item.running .process-arrow {
+  color: var(--text);
 }
 
-.process-item.completed .process-dot {
-  background: var(--surface-muted);
+.process-item.completed .process-arrow {
+  color: var(--muted);
 }
 
 .process-item-head {
@@ -555,12 +557,44 @@ input:focus-visible {
   font-size: 0.72rem;
 }
 
-.process-item p {
+.process-item pre {
   margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--muted);
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
   font-size: 0.78rem;
   line-height: 1.55;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.process-meta-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.process-meta-list span {
+  min-height: 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  padding: 3px 7px;
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  font-size: 0.7rem;
+  line-height: 1.4;
 }
 
 .retrieval-banner strong {

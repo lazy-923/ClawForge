@@ -61,38 +61,35 @@ class AgentManager:
         activated_skills: list[dict[str, object]] | None = None,
         activated_skill_context: str = "",
     ) -> AsyncIterator[dict[str, object]]:
+        yield {
+            "type": "process",
+            "content": {
+                "id": "memory_retrieval",
+                "title": "Retrieve memory",
+                "status": "running",
+                "detail": "",
+                "metadata": {},
+            },
+        }
         retrievals = memory_indexer.retrieve(message)
-        if retrievals:
-            yield {
-                "type": "process",
-                "content": {
-                    "id": "memory_retrieval",
-                    "title": "Retrieve memory context",
-                    "status": "completed",
-                    "detail": "Memory retrieval completed.",
-                    "metadata": {"count": len(retrievals)},
-                },
-            }
-            yield {"type": "retrieval", "results": retrievals}
-        else:
-            yield {
-                "type": "process",
-                "content": {
-                    "id": "memory_retrieval",
-                    "title": "Retrieve memory context",
-                    "status": "completed",
-                    "detail": "No relevant memory context found.",
-                    "metadata": {},
-                },
-            }
+        yield {
+            "type": "process",
+            "content": {
+                "id": "memory_retrieval",
+                "title": "Retrieve memory",
+                "status": "completed",
+                "detail": "",
+                "metadata": {"count": len(retrievals)},
+            },
+        }
 
         if self.llm is None:
             yield {
                 "type": "process",
                 "content": {
-                    "id": "runtime",
-                    "title": "Choose runtime",
-                    "status": "completed",
+                    "id": "agent_runtime",
+                    "title": "Agent runtime",
+                    "status": "running",
                     "detail": "Using backend mock runtime.",
                     "metadata": {"runtime_mode": self.runtime_mode},
                 },
@@ -100,11 +97,11 @@ class AgentManager:
             yield {
                 "type": "process",
                 "content": {
-                    "id": "tool_calls",
-                    "title": "Tool calls",
+                    "id": "runtime_model_message_1",
+                    "title": "model message",
                     "status": "completed",
-                    "detail": "No external tool call was needed in mock runtime.",
-                    "metadata": {},
+                    "detail": "Mock runtime will generate a direct assistant response without tool calls.",
+                    "metadata": {"runtime_event": "model_message"},
                 },
             }
             response = self._build_mock_response(
@@ -117,14 +114,24 @@ class AgentManager:
             for chunk in self._chunk_text(response):
                 await asyncio.sleep(0)
                 yield {"type": "token", "content": chunk}
+            yield {
+                "type": "process",
+                "content": {
+                    "id": "agent_runtime",
+                    "title": "Agent runtime",
+                    "status": "completed",
+                    "detail": "Runtime completed.",
+                    "metadata": {"runtime_mode": self.runtime_mode},
+                },
+            }
         else:
             try:
                 yield {
                     "type": "process",
                     "content": {
-                        "id": "runtime",
-                        "title": "Choose runtime",
-                        "status": "completed",
+                        "id": "agent_runtime",
+                        "title": "Agent runtime",
+                        "status": "running",
                         "detail": f"Using {self.runtime_mode}.",
                         "metadata": {"runtime_mode": self.runtime_mode},
                     },
@@ -136,9 +143,12 @@ class AgentManager:
                     retrievals,
                 )
                 agent = self._build_langchain_agent(activated_skill_context)
-                result = await agent.ainvoke({"messages": messages})
-                for tool_event in self._extract_tool_process_events(result):
-                    yield {"type": "process", "content": tool_event}
+                result: dict[str, Any] = {"messages": []}
+                async for runtime_event in self._stream_langchain_runtime(agent, messages):
+                    if runtime_event["type"] == "process":
+                        yield runtime_event
+                    elif runtime_event["type"] == "result":
+                        result = runtime_event["content"]
                 response = self._extract_response_text(result)
             except APIConnectionError:
                 self.llm = None
@@ -147,7 +157,7 @@ class AgentManager:
                     "type": "process",
                     "content": {
                         "id": "runtime_fallback",
-                        "title": "Fallback runtime",
+                        "title": "Agent runtime",
                         "status": "completed",
                         "detail": "LLM connection failed; switched to backend mock runtime.",
                         "metadata": {},
@@ -163,6 +173,16 @@ class AgentManager:
             for chunk in self._chunk_text(response):
                 await asyncio.sleep(0)
                 yield {"type": "token", "content": chunk}
+            yield {
+                "type": "process",
+                "content": {
+                    "id": "agent_runtime",
+                    "title": "Agent runtime",
+                    "status": "completed",
+                    "detail": "Runtime completed.",
+                    "metadata": {"runtime_mode": self.runtime_mode},
+                },
+            }
 
         yield {"type": "done"}
 
@@ -261,10 +281,147 @@ class AgentManager:
         messages = result.get("messages", [])
         for item in reversed(messages):
             if isinstance(item, AIMessage):
-                return item.text
+                text = self._message_text(item)
+                if text:
+                    return text
             if isinstance(item, dict) and item.get("role") == "assistant":
-                return str(item.get("content", ""))
+                text = str(item.get("content", ""))
+                if text:
+                    return text
         return ""
+
+    async def _stream_langchain_runtime(
+        self,
+        agent: Any,
+        messages: list[dict[str, Any]],
+    ) -> AsyncIterator[dict[str, object]]:
+        result: dict[str, Any] = {"messages": []}
+        seen_messages: set[str] = set()
+        collected_messages: list[object] = []
+        counters = {
+            "model_message": 0,
+            "tool_call": 0,
+            "tool_result": 0,
+        }
+
+        async for update in agent.astream(
+            {"messages": messages},
+            stream_mode="updates",
+        ):
+            if not isinstance(update, dict):
+                continue
+            for node_name, node_payload in update.items():
+                if not isinstance(node_payload, dict):
+                    continue
+                node_messages = node_payload.get("messages", [])
+                for item in self._iter_new_messages(node_messages, seen_messages):
+                    collected_messages.append(item)
+                    for event in self._runtime_events_for_message(item, str(node_name), counters):
+                        yield {"type": "process", "content": event}
+
+        result["messages"] = collected_messages
+        yield {"type": "result", "content": result}
+
+    def _iter_new_messages(
+        self,
+        messages: object,
+        seen_messages: set[str],
+    ) -> Iterable[object]:
+        if not isinstance(messages, Iterable) or isinstance(messages, (str, bytes, dict)):
+            return []
+
+        items: list[object] = []
+        for item in messages:
+            key = self._message_key(item)
+            if key in seen_messages:
+                continue
+            seen_messages.add(key)
+            items.append(item)
+        return items
+
+    def _runtime_events_for_message(
+        self,
+        item: object,
+        node_name: str,
+        counters: dict[str, int],
+    ) -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        if isinstance(item, AIMessage):
+            text = self._message_text(item)
+            tool_calls = getattr(item, "tool_calls", None)
+            if text:
+                counters["model_message"] += 1
+                events.append(
+                    {
+                        "id": f"runtime_model_message_{counters['model_message']}",
+                        "title": "model message",
+                        "status": "completed",
+                        "detail": text[:1200],
+                        "metadata": {
+                            "runtime_event": "model_message",
+                            "node": node_name,
+                        },
+                    }
+                )
+            if isinstance(tool_calls, list):
+                for tool_call in tool_calls:
+                    if not isinstance(tool_call, dict):
+                        continue
+                    counters["tool_call"] += 1
+                    name = str(tool_call.get("name") or "tool")
+                    args = tool_call.get("args") or {}
+                    events.append(
+                        {
+                            "id": f"runtime_tool_call_{counters['tool_call']}",
+                            "title": f"tool call: {name}",
+                            "status": "completed",
+                            "detail": json_safe_preview(args, limit=1200),
+                            "metadata": {
+                                "runtime_event": "tool_call",
+                                "node": node_name,
+                                "tool_name": name,
+                            },
+                        }
+                    )
+        elif isinstance(item, ToolMessage):
+            counters["tool_result"] += 1
+            name = str(getattr(item, "name", "") or "tool")
+            events.append(
+                {
+                    "id": f"runtime_tool_result_{counters['tool_result']}",
+                    "title": f"tool result: {name}",
+                    "status": "completed",
+                    "detail": str(item.content)[:1200],
+                    "metadata": {
+                        "runtime_event": "tool_result",
+                        "node": node_name,
+                        "tool_name": name,
+                    },
+                }
+            )
+        return events
+
+    def _message_text(self, item: object) -> str:
+        content = getattr(item, "content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for part in content:
+                if isinstance(part, str):
+                    parts.append(part)
+                elif isinstance(part, dict):
+                    text = part.get("text") or part.get("content")
+                    if text:
+                        parts.append(str(text))
+            return "\n".join(parts)
+        return str(content) if content else ""
+
+    def _message_key(self, item: object) -> str:
+        message_id = getattr(item, "id", None)
+        if message_id:
+            return str(message_id)
+        return f"{type(item).__name__}:{json_safe_preview(item, limit=400)}"
 
     def _extract_tool_process_events(self, result: dict[str, Any]) -> list[dict[str, object]]:
         messages = result.get("messages", [])

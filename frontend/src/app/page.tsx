@@ -15,7 +15,6 @@ import type {
   MemoryCandidate,
   MergeHistoryEntry,
   MergePreview,
-  RetrievalResult,
   SessionMessage,
   SessionSummary,
   SkillHit,
@@ -24,6 +23,7 @@ import type {
 } from "@/lib/types";
 
 const DEFAULT_ERROR = "Something went wrong while talking to the backend.";
+const PROCESS_PREVIEW_LIMIT = 1800;
 
 function upsertProcessEvent(
   events: AgentProcessEvent[],
@@ -53,6 +53,38 @@ function formatIsoTime(timestamp: string) {
   return new Date(timestamp).toLocaleString();
 }
 
+function previewProcessText(text: string) {
+  if (text.length <= PROCESS_PREVIEW_LIMIT) {
+    return text;
+  }
+  return `${text.slice(0, PROCESS_PREVIEW_LIMIT)}...`;
+}
+
+function processMetadataItems(event: AgentProcessEvent) {
+  const metadata = event.metadata ?? {};
+  const names =
+    Array.isArray(metadata.candidate_names)
+      ? metadata.candidate_names
+      : Array.isArray(metadata.selected_names)
+        ? metadata.selected_names
+        : null;
+
+  if (names) {
+    return names.map((name) => String(name)).filter(Boolean);
+  }
+
+  const runtimeEvent =
+    typeof metadata.runtime_event === "string" ? metadata.runtime_event : null;
+  const toolName = typeof metadata.tool_name === "string" ? metadata.tool_name : null;
+  if (runtimeEvent && toolName) {
+    return [runtimeEvent, toolName];
+  }
+  if (runtimeEvent) {
+    return [runtimeEvent];
+  }
+  return [];
+}
+
 function statusClassName(status: string) {
   return `status-pill status-${status}`;
 }
@@ -80,7 +112,6 @@ export default function HomePage() {
     MergeHistoryEntry[]
   >([]);
   const [staleSkills, setStaleSkills] = useState<StaleSkill[]>([]);
-  const [retrievalEvents, setRetrievalEvents] = useState<RetrievalResult[]>([]);
   const [processEvents, setProcessEvents] = useState<AgentProcessEvent[]>([]);
   const [isProcessExpanded, setIsProcessExpanded] = useState(false);
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([]);
@@ -231,7 +262,6 @@ export default function HomePage() {
     setIsLoading(true);
     setError(null);
     setMergePreview(null);
-    setRetrievalEvents([]);
     setProcessEvents([]);
     setIsProcessExpanded(true);
 
@@ -282,7 +312,6 @@ export default function HomePage() {
           const payload = sseEvent.data as
             | AgentProcessEvent
             | { content: string }
-            | { results: RetrievalResult[] }
             | SkillHit
             | ChatResponse
             | ChatStreamTitleEvent;
@@ -312,11 +341,19 @@ export default function HomePage() {
               }
               return next;
             });
+            setProcessEvents((current) =>
+              upsertProcessEvent(current, {
+                id: "runtime_assistant_response",
+                title: "assistant response chunks",
+                status: "running",
+                detail: previewProcessText(streamedAssistant),
+                metadata: { runtime_event: "assistant_response" },
+              }),
+            );
             continue;
           }
 
           if (eventName === "retrieval") {
-            setRetrievalEvents((payload as { results: RetrievalResult[] }).results ?? []);
             continue;
           }
 
@@ -337,7 +374,15 @@ export default function HomePage() {
             streamedSessionId = donePayload.session_id;
             setActiveSessionId(donePayload.session_id);
             setSkillHit(donePayload.skill_hit);
-            setIsProcessExpanded(false);
+            setProcessEvents((current) =>
+              upsertProcessEvent(current, {
+                id: "runtime_assistant_response",
+                title: "assistant final response",
+                status: "completed",
+                detail: previewProcessText(donePayload.content),
+                metadata: { runtime_event: "assistant_response" },
+              }),
+            );
           }
         }
       }
@@ -668,36 +713,34 @@ export default function HomePage() {
             </button>
             {isProcessExpanded || isStreaming ? (
               <div className="process-list">
-                {processEvents.map((event) => (
-                  <article key={event.id} className={`process-item ${event.status}`}>
-                    <span className="process-dot" aria-hidden="true" />
-                    <div>
-                      <div className="process-item-head">
-                        <strong>{event.title}</strong>
-                        <span>{event.status}</span>
+                {processEvents.map((event) => {
+                  const metadataItems = processMetadataItems(event);
+                  return (
+                    <article key={event.id} className={`process-item ${event.status}`}>
+                      <span className="process-arrow" aria-hidden="true">
+                        -&gt;
+                      </span>
+                      <div>
+                        <div className="process-item-head">
+                          <strong>{event.title}</strong>
+                          <span>{event.status}</span>
+                        </div>
+                        {event.detail ? <pre>{event.detail}</pre> : null}
+                        {metadataItems.length ? (
+                          <div className="process-meta-list">
+                            {metadataItems.map((item) => (
+                              <span key={`${event.id}-${item}`}>{item}</span>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
-                      {event.detail ? <p>{event.detail}</p> : null}
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
             ) : null}
           </div>
         ) : null}
-        {retrievalEvents.length ? (
-          <div className="retrieval-banner" data-testid="retrieval-banner">
-            <strong>Retrieved memory context</strong>
-            <div className="retrieval-list">
-              {retrievalEvents.map((item) => (
-                <span key={`${item.memory_id ?? item.source}-${item.score}`}>
-                  {item.memory_title || item.memory_id || item.source} ·{" "}
-                  {item.retrieval_mode ?? "retrieval"}
-                </span>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
         <div className="message-stream" data-testid="message-stream">
           {messages.map((entry, index) => (
             <article
