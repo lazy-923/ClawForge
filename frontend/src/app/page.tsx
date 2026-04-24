@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE, api } from "@/lib/api";
 import { parseSseBuffer } from "@/lib/sse";
 import type {
@@ -113,7 +113,8 @@ export default function HomePage() {
   >([]);
   const [staleSkills, setStaleSkills] = useState<StaleSkill[]>([]);
   const [processEvents, setProcessEvents] = useState<AgentProcessEvent[]>([]);
-  const [isProcessExpanded, setIsProcessExpanded] = useState(false);
+  const [isProcessVisible, setIsProcessVisible] = useState(false);
+  const processLogRef = useRef<HTMLDivElement | null>(null);
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([]);
   const [memoryContent, setMemoryContent] = useState("");
   const [memoryReason, setMemoryReason] = useState("");
@@ -263,7 +264,7 @@ export default function HomePage() {
     setError(null);
     setMergePreview(null);
     setProcessEvents([]);
-    setIsProcessExpanded(true);
+    setIsProcessVisible(true);
 
     const optimisticMessages: SessionMessage[] = [
       ...messages,
@@ -592,6 +593,13 @@ export default function HomePage() {
     });
   }, [selectedSkillName]);
 
+  useEffect(() => {
+    if (!isProcessVisible || !processLogRef.current) {
+      return;
+    }
+    processLogRef.current.scrollTop = processLogRef.current.scrollHeight;
+  }, [isProcessVisible, processEvents]);
+
   return (
     <main className="workspace-shell" data-testid="workspace-shell">
       <aside className="panel sidebar-panel" data-testid="sidebar-panel">
@@ -686,71 +694,82 @@ export default function HomePage() {
         </div>
 
         {error ? <div className="error-banner" data-testid="error-banner">{error}</div> : null}
-        {isStreaming ? (
-          <div className="stream-banner" data-testid="stream-banner">Streaming response is in progress...</div>
-        ) : null}
-        {processEvents.length ? (
-          <div
-            className={
-              isProcessExpanded || isStreaming
-                ? "process-panel expanded"
-                : "process-panel"
-            }
-            data-testid="agent-process-panel"
-          >
-            <button
-              className="process-toggle"
-              type="button"
-              aria-expanded={isProcessExpanded || isStreaming}
-              onClick={() => setIsProcessExpanded((value) => !value)}
-            >
-              <span>Agent process</span>
-              <span>
-                {processEvents.filter((event) => event.status === "completed").length}
-                {" / "}
-                {processEvents.length}
-              </span>
-            </button>
-            {isProcessExpanded || isStreaming ? (
-              <div className="process-list">
-                {processEvents.map((event) => {
-                  const metadataItems = processMetadataItems(event);
-                  return (
-                    <article key={event.id} className={`process-item ${event.status}`}>
-                      <span className="process-arrow" aria-hidden="true">
-                        -&gt;
-                      </span>
-                      <div>
-                        <div className="process-item-head">
-                          <strong>{event.title}</strong>
-                          <span>{event.status}</span>
-                        </div>
-                        {event.detail ? <pre>{event.detail}</pre> : null}
-                        {metadataItems.length ? (
-                          <div className="process-meta-list">
-                            {metadataItems.map((item) => (
-                              <span key={`${event.id}-${item}`}>{item}</span>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
         <div className="message-stream" data-testid="message-stream">
-          {messages.map((entry, index) => (
-            <article
-              key={`${entry.role}-${index}`}
-              className={entry.role === "user" ? "message-bubble user" : "message-bubble assistant"}
-            >
-              <span className="message-role">{entry.role}</span>
-              <p>{entry.content}</p>
-            </article>
-          ))}
+          {messages.map((entry, index) => {
+            const showProcessForMessage =
+              entry.role !== "user" && index === messages.length - 1 && processEvents.length > 0;
+            return (
+              <article
+                key={`${entry.role}-${index}`}
+                className={entry.role === "user" ? "message-bubble user" : "message-bubble assistant"}
+              >
+                <span className="message-role">{entry.role}</span>
+                {showProcessForMessage && !isProcessVisible ? (
+                  <div className="process-reopen-row">
+                    <button
+                      className="process-reopen-button"
+                      type="button"
+                      onClick={() => setIsProcessVisible(true)}
+                    >
+                      Show agent process
+                      <span>
+                        {processEvents.filter((event) => event.status === "completed").length}
+                        {" / "}
+                        {processEvents.length}
+                        {isStreaming ? " running" : ""}
+                      </span>
+                    </button>
+                  </div>
+                ) : null}
+                {showProcessForMessage && isProcessVisible ? (
+                  <section className="process-panel" data-testid="agent-process-panel">
+                    <div className="process-header">
+                      <div>
+                        <strong>Agent process</strong>
+                        <span>
+                          {processEvents.filter((event) => event.status === "completed").length}
+                          {" / "}
+                          {processEvents.length}
+                          {isStreaming ? " running" : ""}
+                        </span>
+                      </div>
+                      <button
+                        className="process-close-button"
+                        type="button"
+                        aria-label="Hide agent process"
+                        onClick={() => setIsProcessVisible(false)}
+                      >
+                        Hide
+                      </button>
+                    </div>
+                    <div className="process-log" ref={processLogRef}>
+                      {processEvents.map((event) => {
+                        const metadataItems = processMetadataItems(event);
+                        return (
+                          <article key={event.id} className={`process-message ${event.status}`}>
+                            <div className="process-message-head">
+                              <span>-&gt;</span>
+                              <strong>{event.title}</strong>
+                              <small>{event.status}</small>
+                            </div>
+                            {event.detail ? <pre>{event.detail}</pre> : null}
+                            {metadataItems.length ? (
+                              <div className="process-meta-list">
+                                {metadataItems.map((item) => (
+                                  <span key={`${event.id}-${item}`}>{item}</span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ) : null}
+                {entry.content ? <p>{entry.content}</p> : null}
+              </article>
+            );
+          })}
           {!messages.length && !isBooting ? (
             <div className="empty-state large">
               Send a message to validate the backend chat flow, gateway selection,
