@@ -46,6 +46,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ title }),
     }),
+  deleteSession: (sessionId: string) =>
+    fetchJson<{ session_id: string; status: string }>(`/sessions/${sessionId}`, {
+      method: "DELETE",
+    }),
   sessionMessages: (sessionId: string) =>
     fetchJson<SessionDetail>(`/sessions/${sessionId}/messages`),
   gatewayLastHit: (sessionId: string) =>
@@ -80,6 +84,10 @@ export const api = {
   rollbackSkill: (skillName: string) =>
     fetchJson<RollbackResult>(`/skills/${skillName}/rollback`, {
       method: "POST",
+    }),
+  deleteSkill: (skillName: string) =>
+    fetchJson<{ skill: string; status: string }>(`/skills/${skillName}`, {
+      method: "DELETE",
     }),
   staleSkills: () => fetchJson<StaleSkill[]>("/skills/audit/stale"),
   readFile: (path: string) =>

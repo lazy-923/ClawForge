@@ -67,6 +67,12 @@ class SessionManager:
         payload["updated_at"] = time.time()
         self._write_json_atomic(self._session_path(session_id), payload)
 
+    def delete_session(self, session_id: str) -> None:
+        path = self._session_path(session_id)
+        if not path.exists():
+            raise FileNotFoundError("Session not found")
+        path.unlink()
+
     def load_session_for_agent(self, session_id: str) -> list[dict[str, object]]:
         payload = self.read_session(session_id)
         messages = list(payload.get("messages", []))

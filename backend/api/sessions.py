@@ -40,6 +40,17 @@ async def rename_session(session_id: str, request: RenameSessionRequest) -> dict
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str) -> dict[str, str]:
+    try:
+        session_manager.delete_session(session_id)
+        return {"session_id": session_id, "status": "deleted"}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/sessions/{session_id}/messages")
 async def get_session_messages(session_id: str) -> dict[str, object]:
     try:

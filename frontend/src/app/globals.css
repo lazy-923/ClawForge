@@ -232,7 +232,9 @@ input:focus-visible {
 .ghost-button,
 .primary-button,
 .action-button,
+.card-delete-button,
 .session-card,
+.session-card-main,
 .skill-card,
 .catalog-card {
   transition:
@@ -273,6 +275,7 @@ input:focus-visible {
 
 .ghost-button:hover,
 .session-card:hover,
+.session-card-main:hover,
 .skill-card:hover,
 .catalog-card:hover {
   border-color: var(--text);
@@ -281,7 +284,8 @@ input:focus-visible {
 .ghost-button:disabled,
 .primary-button:disabled,
 .new-session-button:disabled,
-.action-button:disabled {
+.action-button:disabled,
+.card-delete-button:disabled {
   cursor: default;
   opacity: 0.5;
 }
@@ -321,6 +325,33 @@ input:focus-visible {
 .session-card {
   display: grid;
   gap: 5px;
+}
+
+.session-card-main {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.card-delete-button {
+  justify-self: start;
+  min-height: 28px;
+  border: 1px solid #f1c7cf;
+  border-radius: var(--radius-sm);
+  background: #fff7f8;
+  color: var(--danger);
+  padding: 0 9px;
+  font-size: 0.74rem;
+  font-weight: 500;
+}
+
+.card-delete-button:hover {
+  border-color: var(--danger);
 }
 
 .session-card.active,
@@ -800,6 +831,13 @@ input:focus-visible {
   padding: 0 24px 16px;
 }
 
+.memory-list {
+  max-height: 420px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 18px;
+}
+
 .draft-reason {
   display: block;
   margin-top: 8px;
@@ -831,12 +869,6 @@ input:focus-visible {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
-}
-
-.memory-count-note {
-  margin: -2px 0 0;
-  color: var(--faint);
-  font-size: 0.78rem;
 }
 
 .detail-card {

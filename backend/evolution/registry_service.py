@@ -80,8 +80,11 @@ class RegistryService:
 
     def get_stale_skills(self) -> list[dict[str, object]]:
         stats = self._read_stats()
+        active_skill_names = {str(skill["name"]) for skill in list_skill_metadata()}
         stale_skills: list[dict[str, object]] = []
         for skill_name, item in stats.items():
+            if skill_name not in active_skill_names:
+                continue
             retrieved = int(item.get("retrieved_count", 0))
             selected = int(item.get("selected_count", 0))
             if retrieved >= 3 and selected == 0:
@@ -95,6 +98,12 @@ class RegistryService:
                     }
                 )
         return stale_skills
+
+    def remove_skill_records(self, skill_name: str) -> None:
+        stats = self._read_stats()
+        if skill_name in stats:
+            stats.pop(skill_name)
+            self._write_stats(stats)
 
     def _read_json(self, path: Path) -> list[dict[str, object]]:
         return json.loads(path.read_text(encoding="utf-8"))

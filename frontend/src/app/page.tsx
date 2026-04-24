@@ -18,7 +18,6 @@ import type {
   SessionMessage,
   SessionSummary,
   SkillHit,
-  SkillUsage,
   StaleSkill,
 } from "@/lib/types";
 
@@ -99,14 +98,12 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isBooting, setIsBooting] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [skillHit, setSkillHit] = useState<SkillHit | null>(null);
   const [governanceDraftId, setGovernanceDraftId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [selectedDraftDetail, setSelectedDraftDetail] = useState<DraftDetail | null>(null);
   const [selectedSkillName, setSelectedSkillName] = useState<string | null>(null);
   const [selectedSkillContent, setSelectedSkillContent] = useState<string>("");
-  const [selectedSkillUsage, setSelectedSkillUsage] = useState<SkillUsage | null>(null);
   const [selectedSkillLineage, setSelectedSkillLineage] = useState<LineageEntry[]>([]);
   const [selectedSkillMergeHistory, setSelectedSkillMergeHistory] = useState<
     MergeHistoryEntry[]
@@ -115,6 +112,7 @@ export default function HomePage() {
   const [processEvents, setProcessEvents] = useState<AgentProcessEvent[]>([]);
   const [isProcessVisible, setIsProcessVisible] = useState(false);
   const processLogRef = useRef<HTMLDivElement | null>(null);
+  const skillInspectorRequestRef = useRef(0);
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([]);
   const [memoryContent, setMemoryContent] = useState("");
   const [memoryReason, setMemoryReason] = useState("");
@@ -122,6 +120,8 @@ export default function HomePage() {
   const [mergePreview, setMergePreview] = useState<MergePreview | null>(null);
   const [previewDraftId, setPreviewDraftId] = useState<string | null>(null);
   const [rollbackSkillName, setRollbackSkillName] = useState<string | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [deletingSkillName, setDeletingSkillName] = useState<string | null>(null);
 
   async function loadSessions(preferredSessionId?: string | null) {
     const sessionItems = await api.sessions();
@@ -142,7 +142,6 @@ export default function HomePage() {
       } catch {
         setActiveSessionId(null);
         setMessages([]);
-        setSkillHit(null);
         return null;
       }
       return nextSessionId;
@@ -150,24 +149,12 @@ export default function HomePage() {
 
     setActiveSessionId(null);
     setMessages([]);
-    setSkillHit(null);
     return null;
   }
 
   async function loadSessionDetail(sessionId: string) {
     const session = await api.sessionMessages(sessionId);
     setMessages(session.messages ?? []);
-
-    try {
-      const hit = await api.gatewayLastHit(sessionId);
-      if (hit.candidate_skills?.length || hit.selected_skills?.length || hit.query) {
-        setSkillHit(hit);
-      } else {
-        setSkillHit(null);
-      }
-    } catch {
-      setSkillHit(null);
-    }
   }
 
   async function loadDrafts() {
@@ -186,16 +173,20 @@ export default function HomePage() {
   }
 
   async function loadSkillInspector(skillName: string) {
-    const [usage, lineage, mergeHistory, file] = await Promise.all([
-      api.skillUsage(skillName),
+    const [lineage, mergeHistory, file] = await Promise.all([
       api.skillLineage(skillName),
       api.skillMergeHistory(skillName),
       api.readFile(`skills/${skillName}/SKILL.md`),
     ]);
-    setSelectedSkillUsage(usage);
     setSelectedSkillLineage(lineage);
     setSelectedSkillMergeHistory(mergeHistory);
     setSelectedSkillContent(file.content);
+  }
+
+  function clearSkillInspector() {
+    setSelectedSkillContent("");
+    setSelectedSkillLineage([]);
+    setSelectedSkillMergeHistory([]);
   }
 
   async function loadStaleSkills() {
@@ -249,6 +240,37 @@ export default function HomePage() {
       await loadSessionDetail(sessionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : DEFAULT_ERROR);
+    }
+  }
+
+  async function handleDeleteSession(session: SessionSummary) {
+    if (isLoading || deletingSessionId) {
+      return;
+    }
+    const ok = window.confirm(`Delete session "${session.title}"? This cannot be undone.`);
+    if (!ok) {
+      return;
+    }
+
+    setDeletingSessionId(session.session_id);
+    setError(null);
+    try {
+      await api.deleteSession(session.session_id);
+      if (session.session_id === activeSessionId) {
+        setMessages([]);
+        setProcessEvents([]);
+        setSelectedDraftId(null);
+        setSelectedDraftDetail(null);
+      }
+      await Promise.all([
+        loadSessions(session.session_id === activeSessionId ? null : activeSessionId),
+        loadDrafts(),
+        loadMemoryCandidates(),
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : DEFAULT_ERROR);
+    } finally {
+      setDeletingSessionId(null);
     }
   }
 
@@ -325,7 +347,6 @@ export default function HomePage() {
           }
 
           if (eventName === "skill_hit") {
-            setSkillHit(payload as SkillHit);
             continue;
           }
 
@@ -374,7 +395,6 @@ export default function HomePage() {
             const donePayload = payload as ChatResponse;
             streamedSessionId = donePayload.session_id;
             setActiveSessionId(donePayload.session_id);
-            setSkillHit(donePayload.skill_hit);
             setProcessEvents((current) =>
               upsertProcessEvent(current, {
                 id: "runtime_assistant_response",
@@ -512,9 +532,42 @@ export default function HomePage() {
     }
   }
 
+  async function handleDeleteSkill(skillName: string) {
+    if (deletingSkillName) {
+      return;
+    }
+    const ok = window.confirm(`Delete skill "${skillName}"? This removes its SKILL.md folder.`);
+    if (!ok) {
+      return;
+    }
+
+    setDeletingSkillName(skillName);
+    setError(null);
+    try {
+      await api.deleteSkill(skillName);
+      setSelectedSkillName(null);
+      setSelectedSkillContent("");
+      setSelectedSkillLineage([]);
+      setSelectedSkillMergeHistory([]);
+      await Promise.all([
+        loadCatalogSkills(),
+        loadStaleSkills(),
+        activeSessionId ? loadSessionDetail(activeSessionId) : Promise.resolve(),
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : DEFAULT_ERROR);
+    } finally {
+      setDeletingSkillName(null);
+    }
+  }
+
   const sessionDrafts = useMemo(
     () => drafts.filter((draft) => draft.source_session_id === activeSessionId),
     [drafts, activeSessionId],
+  );
+  const pendingMemoryCandidates = useMemo(
+    () => memoryCandidates.filter((candidate) => candidate.status === "pending"),
+    [memoryCandidates],
   );
 
   const selectedSkillMeta = useMemo(
@@ -524,9 +577,6 @@ export default function HomePage() {
   const selectedSkillCanRollback = selectedSkillMergeHistory.some(
     (entry) => entry.merge_patch?.rollback?.status === "available",
   );
-  const latestMemoryCandidate = memoryCandidates[0] ?? null;
-  const injectedSkills = useMemo(() => skillHit?.selected_skills ?? [], [skillHit]);
-
   useEffect(() => {
     if (!sessionDrafts.length) {
       setSelectedDraftId(null);
@@ -553,44 +603,58 @@ export default function HomePage() {
   }, [selectedDraftId]);
 
   useEffect(() => {
+    const catalogSkillNames = new Set(catalogSkills.map((skill) => skill.name));
     const preferredSkillNames = [
-      ...injectedSkills.map((skill) => skill.name),
       ...sessionDrafts
         .map((draft) => draft.related_skill)
-        .filter((skill): skill is string => Boolean(skill)),
+        .filter(
+          (skill): skill is string =>
+            typeof skill === "string" && catalogSkillNames.has(skill),
+        ),
       ...catalogSkills.map((skill) => skill.name),
     ];
 
     const uniqueSkillNames = [...new Set(preferredSkillNames)];
     if (!uniqueSkillNames.length) {
       setSelectedSkillName(null);
-      setSelectedSkillContent("");
-      setSelectedSkillUsage(null);
-      setSelectedSkillLineage([]);
-      setSelectedSkillMergeHistory([]);
+      clearSkillInspector();
       return;
     }
 
     if (!selectedSkillName || !uniqueSkillNames.includes(selectedSkillName)) {
       setSelectedSkillName(uniqueSkillNames[0]);
     }
-  }, [catalogSkills, injectedSkills, sessionDrafts, selectedSkillName]);
+  }, [catalogSkills, sessionDrafts, selectedSkillName]);
 
   useEffect(() => {
+    const requestId = skillInspectorRequestRef.current + 1;
+    skillInspectorRequestRef.current = requestId;
+
     if (!selectedSkillName) {
-      setSelectedSkillContent("");
-      setSelectedSkillUsage(null);
-      setSelectedSkillLineage([]);
-      setSelectedSkillMergeHistory([]);
+      clearSkillInspector();
       return;
     }
 
-    void loadSkillInspector(selectedSkillName).catch(() => {
-      setSelectedSkillContent("");
-      setSelectedSkillUsage(null);
-      setSelectedSkillLineage([]);
-      setSelectedSkillMergeHistory([]);
-    });
+    clearSkillInspector();
+    void Promise.all([
+      api.skillLineage(selectedSkillName),
+      api.skillMergeHistory(selectedSkillName),
+      api.readFile(`skills/${selectedSkillName}/SKILL.md`),
+    ])
+      .then(([lineage, mergeHistory, file]) => {
+        if (skillInspectorRequestRef.current !== requestId) {
+          return;
+        }
+        setSelectedSkillLineage(lineage);
+        setSelectedSkillMergeHistory(mergeHistory);
+        setSelectedSkillContent(file.content);
+      })
+      .catch(() => {
+        if (skillInspectorRequestRef.current !== requestId) {
+          return;
+        }
+        clearSkillInspector();
+      });
   }, [selectedSkillName]);
 
   useEffect(() => {
@@ -622,19 +686,32 @@ export default function HomePage() {
 
           <div className="session-list" data-testid="session-list">
             {sessions.map((session) => (
-              <button
+              <article
                 key={session.session_id}
                 className={
                   session.session_id === activeSessionId
                     ? "session-card active"
                     : "session-card"
                 }
-                onClick={() => void handleSelectSession(session.session_id)}
               >
-                <strong>{session.title}</strong>
-                <span>{session.message_count} messages</span>
-                <span>{formatTime(session.updated_at)}</span>
-              </button>
+                <button
+                  className="session-card-main"
+                  type="button"
+                  onClick={() => void handleSelectSession(session.session_id)}
+                >
+                  <strong>{session.title}</strong>
+                  <span>{session.message_count} messages</span>
+                  <span>{formatTime(session.updated_at)}</span>
+                </button>
+                <button
+                  className="card-delete-button"
+                  type="button"
+                  disabled={isLoading || deletingSessionId === session.session_id}
+                  onClick={() => void handleDeleteSession(session)}
+                >
+                  {deletingSessionId === session.session_id ? "Deleting..." : "Delete"}
+                </button>
+              </article>
             ))}
             {!sessions.length && !isBooting ? (
               <p className="empty-state">No sessions yet. Start a new one.</p>
@@ -794,39 +871,9 @@ export default function HomePage() {
 
       <aside className="panel inspector-panel" data-testid="inspector-panel">
         <div className="panel-section">
-          <div className="section-head">
-            <h2>Injected Skills</h2>
-            <span>{injectedSkills.length}</span>
-          </div>
-
-          <div className="info-block" data-testid="gateway-query-block">
-            <small>Gateway Query</small>
-            <p>{skillHit?.query || "No skill selection yet."}</p>
-          </div>
-
-          <div className="skill-list" data-testid="activated-skill-list">
-            {injectedSkills.map((skill) => (
-              <button
-                key={skill.name}
-                className={selectedSkillName === skill.name ? "skill-card active" : "skill-card"}
-                onClick={() => setSelectedSkillName(skill.name)}
-              >
-                <strong>{skill.name}</strong>
-                <p>{skill.description}</p>
-                {skill.path ? <span>{skill.path}</span> : null}
-                {skill.reason ? <span>{skill.reason}</span> : null}
-              </button>
-            ))}
-            {!injectedSkills.length ? (
-              <p className="empty-state">No skills were selected for injection.</p>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="panel-section">
           <div className="section-head secondary">
-            <h2>Latest Memory</h2>
-            <span>{latestMemoryCandidate ? `1 / ${memoryCandidates.length}` : "empty"}</span>
+            <h2>Memory Candidates</h2>
+            <span>{pendingMemoryCandidates.length || "empty"}</span>
           </div>
 
           <form
@@ -856,46 +903,42 @@ export default function HomePage() {
           </form>
 
           <div className="memory-list" data-testid="memory-candidate-list">
-            {latestMemoryCandidate ? (
-              <article key={latestMemoryCandidate.candidate_id} className="memory-card">
+            {pendingMemoryCandidates.map((candidate) => (
+              <article key={candidate.candidate_id} className="memory-card">
                 <div className="draft-card-head">
-                  <strong>{latestMemoryCandidate.candidate_id}</strong>
-                  <span className={statusClassName(latestMemoryCandidate.status)}>
-                    {latestMemoryCandidate.status}
-                  </span>
+                  <strong>{candidate.candidate_id}</strong>
+                  <span className={statusClassName(candidate.status)}>{candidate.status}</span>
                 </div>
-                <p>{latestMemoryCandidate.content}</p>
-                {latestMemoryCandidate.reason ? <span>{latestMemoryCandidate.reason}</span> : null}
+                <p>{candidate.content}</p>
+                {candidate.reason ? <span>{candidate.reason}</span> : null}
                 <div className="memory-meta">
-                  <span>{formatTime(latestMemoryCandidate.updated_at)}</span>
-                  {typeof latestMemoryCandidate.confidence === "number" ? (
-                    <span>confidence {latestMemoryCandidate.confidence.toFixed(2)}</span>
+                  <span>{formatTime(candidate.updated_at)}</span>
+                  {typeof candidate.confidence === "number" ? (
+                    <span>confidence {candidate.confidence.toFixed(2)}</span>
                   ) : null}
                 </div>
-                {latestMemoryCandidate.status === "pending" ? (
+                {candidate.status === "pending" ? (
                   <div className="draft-actions">
                     <button
                       className="ghost-button action-button"
-                      disabled={memoryActionId === latestMemoryCandidate.candidate_id}
-                      onClick={() => void handleGovernMemory(latestMemoryCandidate, "promote")}
+                      disabled={memoryActionId === candidate.candidate_id}
+                      onClick={() => void handleGovernMemory(candidate, "promote")}
                     >
                       Promote
                     </button>
                     <button
                       className="ghost-button action-button danger"
-                      disabled={memoryActionId === latestMemoryCandidate.candidate_id}
-                      onClick={() => void handleGovernMemory(latestMemoryCandidate, "ignore")}
+                      disabled={memoryActionId === candidate.candidate_id}
+                      onClick={() => void handleGovernMemory(candidate, "ignore")}
                     >
                       Ignore
                     </button>
                   </div>
                 ) : null}
               </article>
-            ) : (
-              <p className="empty-state">No memory has been captured yet.</p>
-            )}
-            {memoryCandidates.length > 1 ? (
-              <p className="memory-count-note">{memoryCandidates.length - 1} older entries hidden.</p>
+            ))}
+            {!pendingMemoryCandidates.length ? (
+              <p className="empty-state">No pending memory candidates.</p>
             ) : null}
           </div>
         </div>
@@ -1051,21 +1094,13 @@ export default function HomePage() {
                     >
                       {rollbackSkillName === selectedSkillMeta.name ? "Rolling..." : "Rollback"}
                     </button>
-                  </div>
-                </div>
-
-                <div className="meta-grid">
-                  <div className="metric-card">
-                    <small>Triggers</small>
-                    <strong>{selectedSkillMeta.triggers.length}</strong>
-                  </div>
-                  <div className="metric-card">
-                    <small>Constraints</small>
-                    <strong>{selectedSkillMeta.constraints.length}</strong>
-                  </div>
-                  <div className="metric-card">
-                    <small>Workflow Steps</small>
-                    <strong>{selectedSkillMeta.workflow.length}</strong>
+                    <button
+                      className="ghost-button action-button danger"
+                      disabled={deletingSkillName === selectedSkillMeta.name}
+                      onClick={() => void handleDeleteSkill(selectedSkillMeta.name)}
+                    >
+                      {deletingSkillName === selectedSkillMeta.name ? "Deleting..." : "Delete"}
+                    </button>
                   </div>
                 </div>
 
@@ -1084,23 +1119,6 @@ export default function HomePage() {
                   <small>Goal</small>
                   <p>{selectedSkillMeta.goal || "No goal text available."}</p>
                 </div>
-
-                {selectedSkillUsage ? (
-                  <div className="metric-grid">
-                    <div className="metric-card">
-                      <small>Retrieved</small>
-                      <strong>{selectedSkillUsage.retrieved_count}</strong>
-                    </div>
-                    <div className="metric-card">
-                      <small>Selected</small>
-                      <strong>{selectedSkillUsage.selected_count}</strong>
-                    </div>
-                    <div className="metric-card">
-                      <small>Adopted</small>
-                      <strong>{selectedSkillUsage.adopted_count}</strong>
-                    </div>
-                  </div>
-                ) : null}
 
                 <pre>{selectedSkillContent || "Skill content is not available."}</pre>
 
