@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 from typing import AsyncIterator
+from typing import Callable
 
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
@@ -18,6 +19,8 @@ from backend.tools.python_repl_tool import run_python
 from backend.tools.read_file_tool import read_file
 from backend.tools.search_knowledge_tool import search_knowledge_base
 from backend.tools.terminal_tool import run_terminal
+
+TOOL_ERROR_RESULT_MAX_CHARS = 1200
 
 
 class AgentManager:
@@ -192,23 +195,26 @@ class AgentManager:
     def _build_langchain_tools(self) -> list[StructuredTool]:
         def terminal(command: str) -> str:
             """Run a shell command inside the project workspace with basic safety checks."""
-            return run_terminal(command)
+            return self._safe_tool_call("terminal", lambda: run_terminal(command))
 
         def python_repl(code: str) -> str:
             """Execute a short Python snippet for analysis or transformation tasks."""
-            return run_python(code)
+            return self._safe_tool_call("python_repl", lambda: run_python(code))
 
         def fetch_web_page(url: str) -> str:
             """Fetch a web page or compatible HTTP resource and return cleaned text content."""
-            return fetch_url(url)
+            return self._safe_tool_call("fetch_url", lambda: fetch_url(url))
 
         def read_project_file(path: str) -> str:
             """Read a file from the current project directory."""
-            return read_file(path)
+            return self._safe_tool_call("read_file", lambda: read_file(path))
 
-        def search_project_knowledge(query: str, top_k: int = 3) -> list[dict[str, object]]:
+        def search_project_knowledge(query: str, top_k: int = 3) -> list[dict[str, object]] | str:
             """Search the local knowledge directory and return the most relevant snippets."""
-            return search_knowledge_base(query, top_k=top_k)
+            return self._safe_tool_call(
+                "search_knowledge_base",
+                lambda: search_knowledge_base(query, top_k=top_k),
+            )
 
         return [
             StructuredTool.from_function(terminal, name="terminal"),
@@ -217,6 +223,13 @@ class AgentManager:
             StructuredTool.from_function(read_project_file, name="read_file"),
             StructuredTool.from_function(search_project_knowledge, name="search_knowledge_base"),
         ]
+
+    def _safe_tool_call(self, tool_name: str, call: Callable[[], Any]) -> Any:
+        try:
+            return call()
+        except Exception as exc:
+            message = f"Tool `{tool_name}` failed with {type(exc).__name__}: {exc}"
+            return message[:TOOL_ERROR_RESULT_MAX_CHARS]
 
 
 agent_manager = AgentManager()
