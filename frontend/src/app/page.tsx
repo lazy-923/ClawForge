@@ -4,13 +4,13 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { API_BASE, api } from "@/lib/api";
 import { parseSseBuffer } from "@/lib/sse";
 import type {
+  AgentProcessEvent,
   ChatResponse,
   ChatStreamTitleEvent,
   DraftDetail,
   DraftSummary,
   FormalSkill,
   GovernanceAction,
-  HealthStatus,
   LineageEntry,
   MemoryCandidate,
   MergeHistoryEntry,
@@ -24,6 +24,26 @@ import type {
 } from "@/lib/types";
 
 const DEFAULT_ERROR = "Something went wrong while talking to the backend.";
+
+function upsertProcessEvent(
+  events: AgentProcessEvent[],
+  nextEvent: AgentProcessEvent,
+) {
+  const index = events.findIndex((event) => event.id === nextEvent.id);
+  if (index < 0) {
+    return [...events, nextEvent];
+  }
+  const next = [...events];
+  next[index] = {
+    ...next[index],
+    ...nextEvent,
+    metadata: {
+      ...(next[index].metadata ?? {}),
+      ...(nextEvent.metadata ?? {}),
+    },
+  };
+  return next;
+}
 
 function formatTime(timestamp: number) {
   return new Date(timestamp * 1000).toLocaleString();
@@ -41,7 +61,6 @@ export default function HomePage() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   const [catalogSkills, setCatalogSkills] = useState<FormalSkill[]>([]);
-  const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<SessionMessage[]>([]);
   const [message, setMessage] = useState("");
@@ -62,6 +81,8 @@ export default function HomePage() {
   >([]);
   const [staleSkills, setStaleSkills] = useState<StaleSkill[]>([]);
   const [retrievalEvents, setRetrievalEvents] = useState<RetrievalResult[]>([]);
+  const [processEvents, setProcessEvents] = useState<AgentProcessEvent[]>([]);
+  const [isProcessExpanded, setIsProcessExpanded] = useState(false);
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([]);
   const [memoryContent, setMemoryContent] = useState("");
   const [memoryReason, setMemoryReason] = useState("");
@@ -70,21 +91,28 @@ export default function HomePage() {
   const [previewDraftId, setPreviewDraftId] = useState<string | null>(null);
   const [rollbackSkillName, setRollbackSkillName] = useState<string | null>(null);
 
-  async function loadHealth() {
-    const nextHealth = await api.health();
-    setHealthStatus(nextHealth);
-  }
-
   async function loadSessions(preferredSessionId?: string | null) {
     const sessionItems = await api.sessions();
     setSessions(sessionItems);
 
+    const availableSessionIds = new Set(sessionItems.map((session) => session.session_id));
     const nextSessionId =
-      preferredSessionId ?? activeSessionId ?? sessionItems[0]?.session_id ?? null;
+      preferredSessionId && availableSessionIds.has(preferredSessionId)
+        ? preferredSessionId
+        : activeSessionId && availableSessionIds.has(activeSessionId)
+          ? activeSessionId
+          : sessionItems[0]?.session_id ?? null;
 
     if (nextSessionId) {
       setActiveSessionId(nextSessionId);
-      await loadSessionDetail(nextSessionId);
+      try {
+        await loadSessionDetail(nextSessionId);
+      } catch {
+        setActiveSessionId(null);
+        setMessages([]);
+        setSkillHit(null);
+        return null;
+      }
       return nextSessionId;
     }
 
@@ -151,20 +179,19 @@ export default function HomePage() {
   async function bootstrap() {
     setIsBooting(true);
     setError(null);
-    try {
-      await Promise.all([
-        loadHealth(),
-        loadSessions(),
-        loadDrafts(),
-        loadCatalogSkills(),
-        loadStaleSkills(),
-        loadMemoryCandidates(),
-      ]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : DEFAULT_ERROR);
-    } finally {
-      setIsBooting(false);
+    const results = await Promise.allSettled([
+      loadSessions(),
+      loadDrafts(),
+      loadCatalogSkills(),
+      loadStaleSkills(),
+      loadMemoryCandidates(),
+    ]);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") {
+      const reason = failed.reason;
+      setError(reason instanceof Error ? reason.message : DEFAULT_ERROR);
     }
+    setIsBooting(false);
   }
 
   useEffect(() => {
@@ -205,6 +232,8 @@ export default function HomePage() {
     setError(null);
     setMergePreview(null);
     setRetrievalEvents([]);
+    setProcessEvents([]);
+    setIsProcessExpanded(true);
 
     const optimisticMessages: SessionMessage[] = [
       ...messages,
@@ -251,11 +280,19 @@ export default function HomePage() {
         for (const sseEvent of parsed.events) {
           const eventName = sseEvent.event;
           const payload = sseEvent.data as
+            | AgentProcessEvent
             | { content: string }
             | { results: RetrievalResult[] }
             | SkillHit
             | ChatResponse
             | ChatStreamTitleEvent;
+
+          if (eventName === "process") {
+            setProcessEvents((current) =>
+              upsertProcessEvent(current, payload as AgentProcessEvent),
+            );
+            continue;
+          }
 
           if (eventName === "skill_hit") {
             setSkillHit(payload as SkillHit);
@@ -300,6 +337,7 @@ export default function HomePage() {
             streamedSessionId = donePayload.session_id;
             setActiveSessionId(donePayload.session_id);
             setSkillHit(donePayload.skill_hit);
+            setIsProcessExpanded(false);
           }
         }
       }
@@ -311,7 +349,6 @@ export default function HomePage() {
           loadCatalogSkills(),
           loadStaleSkills(),
           loadMemoryCandidates(),
-          loadHealth(),
         ]);
       } else {
         await Promise.all([
@@ -319,7 +356,6 @@ export default function HomePage() {
           loadCatalogSkills(),
           loadStaleSkills(),
           loadMemoryCandidates(),
-          loadHealth(),
         ]);
       }
     } catch (err) {
@@ -351,7 +387,6 @@ export default function HomePage() {
         loadCatalogSkills(),
         loadStaleSkills(),
         loadMemoryCandidates(),
-        loadHealth(),
         activeSessionId ? loadSessionDetail(activeSessionId) : Promise.resolve(),
         loadSessions(activeSessionId),
       ]);
@@ -406,7 +441,7 @@ export default function HomePage() {
       } else {
         await api.ignoreMemoryCandidate(candidate.candidate_id);
       }
-      await Promise.all([loadMemoryCandidates(), loadHealth()]);
+      await loadMemoryCandidates();
     } catch (err) {
       setError(err instanceof Error ? err.message : DEFAULT_ERROR);
     } finally {
@@ -423,7 +458,6 @@ export default function HomePage() {
         loadCatalogSkills(),
         loadStaleSkills(),
         loadSkillInspector(skillName),
-        loadHealth(),
       ]);
     } catch (err) {
       setError(err instanceof Error ? err.message : DEFAULT_ERROR);
@@ -432,7 +466,10 @@ export default function HomePage() {
     }
   }
 
-  const sessionDrafts = drafts.filter((draft) => draft.source_session_id === activeSessionId);
+  const sessionDrafts = useMemo(
+    () => drafts.filter((draft) => draft.source_session_id === activeSessionId),
+    [drafts, activeSessionId],
+  );
 
   const selectedSkillMeta = useMemo(
     () => catalogSkills.find((skill) => skill.name === selectedSkillName) ?? null,
@@ -441,6 +478,7 @@ export default function HomePage() {
   const selectedSkillCanRollback = selectedSkillMergeHistory.some(
     (entry) => entry.merge_patch?.rollback?.status === "available",
   );
+  const latestMemoryCandidate = memoryCandidates[0] ?? null;
 
   useEffect(() => {
     if (!sessionDrafts.length) {
@@ -511,64 +549,15 @@ export default function HomePage() {
   return (
     <main className="workspace-shell" data-testid="workspace-shell">
       <aside className="panel sidebar-panel" data-testid="sidebar-panel">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">ClawForge</p>
-            <h1>Skill Workbench</h1>
-          </div>
+        <div className="panel-header brand-header">
+          <h1 className="brand-title">ClawForge</h1>
           <button
-            className="ghost-button"
+            className="new-session-button"
             data-testid="create-session-button"
             onClick={() => void createSession()}
           >
             New Session
           </button>
-        </div>
-
-        <p className="panel-copy">
-          Frontend workspace aligned to the FastAPI backend. It covers health,
-          sessions, chat streaming, draft governance, and skill inspection in one
-          place.
-        </p>
-
-        <div className="panel-section">
-          <div className="section-head">
-            <h2>Backend Status</h2>
-            <span>{healthStatus?.status ?? "unknown"}</span>
-          </div>
-          <div className="backend-card" data-testid="backend-status-card">
-            <div className="backend-topline">
-              <strong data-testid="backend-name">{healthStatus?.name ?? "Backend unavailable"}</strong>
-              <span
-                data-testid="backend-health-pill"
-                className={
-                  healthStatus?.status === "ok"
-                    ? "health-pill success"
-                    : "health-pill"
-                }
-              >
-                {healthStatus?.status ?? "offline"}
-              </span>
-            </div>
-            <div className="backend-metrics">
-              <div>
-                <small>Environment</small>
-                <strong>{healthStatus?.environment ?? "--"}</strong>
-              </div>
-              <div>
-                <small>LLM Mode</small>
-                <strong>{healthStatus?.llm_mode ?? "--"}</strong>
-              </div>
-              <div>
-                <small>Provider</small>
-                <strong>{healthStatus?.llm_provider ?? "--"}</strong>
-              </div>
-            </div>
-            <div className="backend-meta">
-              <span>API: {API_BASE}</span>
-              <span>Prefix: {healthStatus?.api_prefix ?? "--"}</span>
-            </div>
-          </div>
         </div>
 
         <div className="panel-section">
@@ -654,6 +643,46 @@ export default function HomePage() {
         {isStreaming ? (
           <div className="stream-banner" data-testid="stream-banner">Streaming response is in progress...</div>
         ) : null}
+        {processEvents.length ? (
+          <div
+            className={
+              isProcessExpanded || isStreaming
+                ? "process-panel expanded"
+                : "process-panel"
+            }
+            data-testid="agent-process-panel"
+          >
+            <button
+              className="process-toggle"
+              type="button"
+              aria-expanded={isProcessExpanded || isStreaming}
+              onClick={() => setIsProcessExpanded((value) => !value)}
+            >
+              <span>Agent process</span>
+              <span>
+                {processEvents.filter((event) => event.status === "completed").length}
+                {" / "}
+                {processEvents.length}
+              </span>
+            </button>
+            {isProcessExpanded || isStreaming ? (
+              <div className="process-list">
+                {processEvents.map((event) => (
+                  <article key={event.id} className={`process-item ${event.status}`}>
+                    <span className="process-dot" aria-hidden="true" />
+                    <div>
+                      <div className="process-item-head">
+                        <strong>{event.title}</strong>
+                        <span>{event.status}</span>
+                      </div>
+                      {event.detail ? <p>{event.detail}</p> : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         {retrievalEvents.length ? (
           <div className="retrieval-banner" data-testid="retrieval-banner">
             <strong>Retrieved memory context</strong>
@@ -732,8 +761,8 @@ export default function HomePage() {
 
         <div className="panel-section">
           <div className="section-head secondary">
-            <h2>Memory Candidates</h2>
-            <span>{memoryCandidates.length}</span>
+            <h2>Latest Memory</h2>
+            <span>{latestMemoryCandidate ? `1 / ${memoryCandidates.length}` : "empty"}</span>
           </div>
 
           <form
@@ -763,42 +792,46 @@ export default function HomePage() {
           </form>
 
           <div className="memory-list" data-testid="memory-candidate-list">
-            {memoryCandidates.slice(0, 8).map((candidate) => (
-              <article key={candidate.candidate_id} className="memory-card">
+            {latestMemoryCandidate ? (
+              <article key={latestMemoryCandidate.candidate_id} className="memory-card">
                 <div className="draft-card-head">
-                  <strong>{candidate.candidate_id}</strong>
-                  <span className={statusClassName(candidate.status)}>{candidate.status}</span>
+                  <strong>{latestMemoryCandidate.candidate_id}</strong>
+                  <span className={statusClassName(latestMemoryCandidate.status)}>
+                    {latestMemoryCandidate.status}
+                  </span>
                 </div>
-                <p>{candidate.content}</p>
-                {candidate.reason ? <span>{candidate.reason}</span> : null}
+                <p>{latestMemoryCandidate.content}</p>
+                {latestMemoryCandidate.reason ? <span>{latestMemoryCandidate.reason}</span> : null}
                 <div className="memory-meta">
-                  <span>{formatTime(candidate.updated_at)}</span>
-                  {typeof candidate.confidence === "number" ? (
-                    <span>confidence {candidate.confidence.toFixed(2)}</span>
+                  <span>{formatTime(latestMemoryCandidate.updated_at)}</span>
+                  {typeof latestMemoryCandidate.confidence === "number" ? (
+                    <span>confidence {latestMemoryCandidate.confidence.toFixed(2)}</span>
                   ) : null}
                 </div>
-                {candidate.status === "pending" ? (
+                {latestMemoryCandidate.status === "pending" ? (
                   <div className="draft-actions">
                     <button
                       className="ghost-button action-button"
-                      disabled={memoryActionId === candidate.candidate_id}
-                      onClick={() => void handleGovernMemory(candidate, "promote")}
+                      disabled={memoryActionId === latestMemoryCandidate.candidate_id}
+                      onClick={() => void handleGovernMemory(latestMemoryCandidate, "promote")}
                     >
                       Promote
                     </button>
                     <button
                       className="ghost-button action-button danger"
-                      disabled={memoryActionId === candidate.candidate_id}
-                      onClick={() => void handleGovernMemory(candidate, "ignore")}
+                      disabled={memoryActionId === latestMemoryCandidate.candidate_id}
+                      onClick={() => void handleGovernMemory(latestMemoryCandidate, "ignore")}
                     >
                       Ignore
                     </button>
                   </div>
                 ) : null}
               </article>
-            ))}
-            {!memoryCandidates.length ? (
-              <p className="empty-state">No memory candidates are waiting for review.</p>
+            ) : (
+              <p className="empty-state">No memory has been captured yet.</p>
+            )}
+            {memoryCandidates.length > 1 ? (
+              <p className="memory-count-note">{memoryCandidates.length - 1} older entries hidden.</p>
             ) : null}
           </div>
         </div>

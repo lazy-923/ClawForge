@@ -23,6 +23,14 @@ export type SkillHit = {
   selected_skills: SkillActivation[];
 };
 
+export type AgentProcessEvent = {
+  id: string;
+  title: string;
+  status: "running" | "completed" | "failed" | string;
+  detail?: string;
+  metadata?: Record<string, unknown>;
+};
+
 export type DraftSummary = {
   draft_id: string;
   name: string;

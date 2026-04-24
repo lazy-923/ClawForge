@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-test("workspace boots and surfaces backend state", async ({ page }) => {
+test("workspace boots and surfaces core navigation", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByTestId("workspace-shell")).toBeVisible();
-  await expect(page.getByTestId("backend-status-card")).toBeVisible();
-  await expect(page.getByTestId("backend-health-pill")).toContainText("ok");
+  await expect(page.getByRole("heading", { name: "ClawForge" })).toBeVisible();
+  await expect(page.getByTestId("create-session-button")).toBeVisible();
   await expect(page.getByTestId("catalog-list")).toContainText("get_weather");
   await expect(page.getByTestId("catalog-list")).toContainText("professional_rewrite");
 });
