@@ -56,8 +56,8 @@ ClawForge/
 
 ### 环境要求
 
-- 推荐 Python 3.11+
-- 推荐 Node.js 20+
+- Docker Compose 是推荐运行方式。
+- 如果不用 Docker，本地开发推荐 Python 3.11+ 和 Node.js 20+。
 - OpenAI-compatible Chat API key 可选但推荐配置；不配置时后端会退回 mock / 规则逻辑，真实回答和自动治理质量会受限。
 
 ### 1. 克隆项目
@@ -67,15 +67,9 @@ git clone https://github.com/lazy-923/ClawForge.git
 cd ClawForge
 ```
 
-### 2. 配置后端
+### 2. 配置后端环境变量
 
-安装后端依赖：
-
-```bash
-pip install -r backend/requirements.txt
-```
-
-复制环境变量文件：
+复制后端环境变量文件：
 
 ```bash
 # Windows PowerShell
@@ -121,49 +115,69 @@ EMBEDDING_MODEL=text-embedding-v4
 
 Embedding 是可选的。只有同时配置 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL` 和 `EMBEDDING_MODEL` 时，系统才会启用 OpenAI-compatible 向量检索；否则项目仍然可以使用 BM25 关键词检索正常运行。
 
-### 3. 启动后端
+### 3. 使用 Docker Compose 启动
 
 ```bash
+docker compose up --build
+```
+
+启动后访问：
+
+- 前端工作台: `http://localhost:3000`
+- 后端 API: `http://127.0.0.1:8002/api`
+- OpenAPI 文档: `http://127.0.0.1:8002/docs`
+
+Docker Compose 会启动两个服务：
+
+- `backend`: FastAPI / Uvicorn
+- `frontend`: Next.js production server
+
+以下目录会挂载到容器中，容器重建后数据仍保留在宿主机：
+
+```text
+backend/memory
+backend/sessions
+backend/skills
+backend/skill_drafts
+backend/skill_registry
+backend/storage
+backend/knowledge
+backend/workspace
+```
+
+### 4. 本地开发方式
+
+如果你不使用 Docker，可以分别启动后端和前端。
+
+安装并启动后端：
+
+```bash
+pip install -r backend/requirements.txt
 uvicorn backend.app:app --host 0.0.0.0 --port 8002 --reload
 ```
 
-后端地址：
-
-- API base: `http://127.0.0.1:8002/api`
-- OpenAPI 文档: `http://127.0.0.1:8002/docs`
-
-后端启动时会自动扫描技能、重建 skill / memory / knowledge 索引，并初始化 Agent 运行时。
-
-### 4. 配置前端
+复制前端环境变量文件并启动前端：
 
 ```bash
 cd frontend
 npm install
-```
 
-复制前端环境变量文件：
-
-```bash
 # Windows PowerShell
 Copy-Item .env.example .env.local
 
 # macOS / Linux
 cp .env.example .env.local
+
+npm run dev
 ```
 
-默认前端 API 配置：
+默认前端 API 配置在 `frontend/.env.local`：
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8002/api
 ```
 
-### 5. 启动前端
-
-```bash
-npm run dev
-```
-
-打开：
+本地开发模式下打开：
 
 ```text
 http://localhost:3000
