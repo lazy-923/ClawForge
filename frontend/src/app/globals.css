@@ -941,6 +941,20 @@ input:focus-visible {
   margin-top: 12px;
 }
 
+.lineage-list.lineage-scroll {
+  max-height: 180px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.draft-list {
+  max-height: 620px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 18px;
+}
+
 .subsection-head {
   display: flex;
   align-items: center;

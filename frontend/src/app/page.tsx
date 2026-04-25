@@ -1139,7 +1139,7 @@ export default function HomePage() {
                   <h3>Lineage</h3>
                   <span>{selectedSkillLineage.length}</span>
                 </div>
-                <div className="lineage-list">
+                <div className="lineage-list lineage-scroll">
                   {selectedSkillLineage.map((entry) => (
                     <article key={`${entry.skill}-${entry.timestamp}`} className="lineage-card">
                       <strong>{entry.version}</strong>
