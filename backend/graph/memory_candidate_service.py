@@ -102,7 +102,7 @@ class MemoryCandidateService:
         if candidate["status"] != "pending":
             return candidate
         confidence = self._coerce_confidence(candidate.get("confidence"))
-        if confidence < settings.memory_auto_promote_min_confidence:
+        if not self._should_auto_promote(candidate, confidence):
             return None
 
         self._append_to_memory(candidate)
@@ -143,13 +143,34 @@ class MemoryCandidateService:
     ) -> dict[str, object] | None:
         normalized_content = self._normalize_content(content)
         for item in candidates:
-            if self._normalize_content(str(item.get("content", ""))) != normalized_content:
+            item_content = str(item.get("content", ""))
+            if not self._is_duplicate_text(item_content, normalized_content):
                 continue
             return item
         return None
 
     def _normalize_content(self, content: str) -> str:
-        return re.sub(r"\s+", " ", content).strip().casefold()
+        normalized = re.sub(r"\s+", " ", content).strip().casefold()
+        normalized = re.sub(r"[`*_~，。！？、；：,.!?;:\"'“”‘’（）()\[\]{}<>《》]", "", normalized)
+        return normalized
+
+    def _is_duplicate_text(self, existing: str, normalized_content: str) -> bool:
+        normalized_existing = self._normalize_content(existing)
+        if normalized_existing == normalized_content:
+            return True
+        if not normalized_existing or not normalized_content:
+            return False
+        if normalized_existing in normalized_content or normalized_content in normalized_existing:
+            shorter = min(len(normalized_existing), len(normalized_content))
+            longer = max(len(normalized_existing), len(normalized_content))
+            return shorter >= 12 and shorter / longer >= 0.55
+
+        existing_terms = set(extract_terms(normalized_existing))
+        content_terms = set(extract_terms(normalized_content))
+        if not existing_terms or not content_terms:
+            return False
+        overlap = len(existing_terms & content_terms) / max(1, min(len(existing_terms), len(content_terms)))
+        return overlap >= 0.82
 
     def _merge_evidence(self, existing: object, new_items: list[str]) -> list[str]:
         merged: list[str] = []
@@ -233,10 +254,10 @@ class MemoryCandidateService:
     def _find_existing_memory_heading(self, existing: str, content: str) -> str | None:
         normalized_content = self._normalize_content(content)
         for match in re.finditer(r"(?m)^Memory:\s*(.+?)\s*$", existing):
-            if self._normalize_content(match.group(1)) == normalized_content:
+            if self._is_duplicate_text(match.group(1), normalized_content):
                 return match.group(1)
         for match in re.finditer(r"(?m)^-\s+(.+?)\s*$", existing):
-            if self._normalize_content(match.group(1)) == normalized_content:
+            if self._is_duplicate_text(match.group(1), normalized_content):
                 return match.group(1)
         return None
 
@@ -248,7 +269,18 @@ class MemoryCandidateService:
 
     def _infer_memory_type(self, content: str, reason: str) -> str:
         text = f"{content} {reason}".casefold()
-        if "prefer" in text or "preference" in text:
+        preference_markers = (
+            "prefer",
+            "preference",
+            "likes",
+            "偏好",
+            "喜欢",
+            "倾向",
+            "习惯",
+            "希望",
+            "更喜欢",
+        )
+        if any(marker in text for marker in preference_markers):
             return "preference"
         instruction_patterns = (
             r"\balways\b",
@@ -256,16 +288,43 @@ class MemoryCandidateService:
             r"\bavoid\b",
             r"\buse\b",
             r"\bremember\b",
+            r"记住",
+            r"以后",
+            r"今后",
+            r"后续",
+            r"每次",
+            r"固定",
+            r"总是",
+            r"不要",
+            r"避免",
+            r"必须",
+            r"需要",
+            r"请按",
         )
         if any(re.search(pattern, text) for pattern in instruction_patterns):
             return "instruction"
-        if any(marker in text for marker in ("project", "decision", "architecture", "backend", "frontend")):
+        if any(
+            marker in text
+            for marker in (
+                "project",
+                "decision",
+                "architecture",
+                "backend",
+                "frontend",
+                "项目",
+                "决策",
+                "架构",
+                "后端",
+                "前端",
+                "实现",
+            )
+        ):
             return "project_context"
         return "general"
 
     def _infer_scope(self, content: str, source_session_id: str) -> str:
         text = content.casefold()
-        if "clawforge" in text or "project" in text or "backend" in text:
+        if any(marker in text for marker in ("clawforge", "project", "backend", "frontend", "项目", "后端", "前端")):
             return "clawforge"
         if source_session_id:
             return f"session:{source_session_id}"
@@ -283,6 +342,88 @@ class MemoryCandidateService:
         if memory_type == "project_context":
             return "when answering project, architecture, implementation, or progress questions"
         return "when the current request is semantically related to this memory"
+
+    def _should_auto_promote(self, candidate: dict[str, object], confidence: float) -> bool:
+        if confidence < max(settings.memory_auto_promote_min_confidence, 0.9):
+            return False
+
+        content = str(candidate.get("content", ""))
+        reason = str(candidate.get("reason", ""))
+        evidence = " ".join(self._coerce_string_list(candidate.get("evidence")))
+        text = f"{content} {reason} {evidence}".casefold()
+        if self._looks_like_skill_or_output_policy(text):
+            return False
+        if self._looks_like_one_off_request(text):
+            return False
+        if self._duplicates_existing_memory(content):
+            return False
+        memory_type = self._infer_memory_type(content, reason)
+        return memory_type in {"preference", "instruction", "project_context"}
+
+    def _looks_like_skill_or_output_policy(self, text: str) -> bool:
+        skill_markers = (
+            "skill",
+            "workflow",
+            "draft",
+            "output format",
+            "fixed output",
+            "mandatory output",
+            "section",
+            "weather forecast",
+            "weather query",
+            "技能",
+            "工作流",
+            "流程",
+            "沉淀",
+            "复用技能",
+            "输出流程",
+            "输出格式",
+            "固定输出",
+            "四个",
+            "四部分",
+            "天气概况",
+            "穿衣建议",
+            "出行风险",
+            "适合拍照",
+        )
+        return any(marker in text for marker in skill_markers)
+
+    def _looks_like_one_off_request(self, text: str) -> bool:
+        one_off_markers = (
+            "this answer",
+            "this response",
+            "这次",
+            "本次",
+            "当前",
+            "这条",
+            "三条要点",
+            "三条",
+            "要点回答",
+            "bullet points",
+        )
+        durable_markers = (
+            "remember",
+            "for future",
+            "from now on",
+            "always",
+            "whenever",
+            "记住",
+            "以后",
+            "今后",
+            "后续",
+            "每次",
+            "总是",
+        )
+        return any(marker in text for marker in one_off_markers) and not any(
+            marker in text for marker in durable_markers
+        )
+
+    def _duplicates_existing_memory(self, content: str) -> bool:
+        memory_path = settings.memory_dir / "MEMORY.md"
+        if not memory_path.exists():
+            return False
+        existing = memory_path.read_text(encoding="utf-8")
+        return self._find_existing_memory_heading(existing, content) is not None
 
     def _coerce_confidence(self, value: object) -> float:
         try:

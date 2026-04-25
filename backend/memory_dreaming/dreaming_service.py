@@ -30,6 +30,18 @@ def _has_durable_instruction_signal(text: str) -> bool:
         r"\bwhenever\b",
         r"\bfor future\b",
         r"\bfrom now on\b",
+        r"记住",
+        r"以后",
+        r"今后",
+        r"后续",
+        r"每次",
+        r"固定",
+        r"总是",
+        r"不要",
+        r"避免",
+        r"必须",
+        r"需要",
+        r"请按",
     )
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in patterns)
 
@@ -111,7 +123,10 @@ class DreamingService:
                             '{"candidates":[{"content":"...","reason":"...","confidence":0.0,'
                             '"evidence":["..."],"provenance":{"source":"session_dreaming"}}]}. '
                             "Prefer user preferences, stable instructions, recurring facts, "
-                            "and long-lived project decisions. Do not include ephemeral chatter."
+                            "and long-lived project decisions. Do not include ephemeral chatter, "
+                            "one-off formatting requests, or instructions that are better handled "
+                            "as reusable skill drafts or skill workflow updates. Be especially "
+                            "conservative for output-format preferences observed only once."
                         ),
                     },
                     {
@@ -145,9 +160,9 @@ class DreamingService:
         joined = "\n".join(texts)
         lowered = joined.casefold()
 
-        if "prefer" in lowered or "preference" in lowered:
+        if "prefer" in lowered or "preference" in lowered or "偏好" in joined or "喜欢" in joined:
             match = re.search(
-                r"(?:prefer(?:s|red|ence)?(?:\s+to)?\s+|preference(?:\s+is)?\s+)(.+?)(?:[.!?\n]|$)",
+                r"(?:prefer(?:s|red|ence)?(?:\s+to)?\s+|preference(?:\s+is)?\s+|偏好|喜欢)(.+?)(?:[.!?\n。！？]|$)",
                 joined,
                 flags=re.IGNORECASE,
             )
@@ -157,7 +172,7 @@ class DreamingService:
                     {
                         "content": f"User prefers {content.rstrip('.')}.",
                         "reason": "Detected a durable preference in the latest session context.",
-                        "confidence": 0.86,
+                        "confidence": 0.91,
                         "evidence": [content],
                         "provenance": {
                             "source": "heuristic",

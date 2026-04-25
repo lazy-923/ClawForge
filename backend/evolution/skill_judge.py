@@ -14,9 +14,10 @@ def judge_draft(
     draft: dict[str, object],
     related_skills: list[dict[str, object]],
 ) -> dict[str, object]:
-    fallback = _rule_judge_draft(draft, related_skills)
-    llm_judgment = _try_llm_judge_draft(draft, related_skills, fallback)
-    return llm_judgment or fallback
+    llm_judgment = _try_llm_judge_draft(draft, related_skills)
+    if llm_judgment is not None:
+        return llm_judgment
+    return _rule_judge_draft(draft, related_skills)
 
 
 def _rule_judge_draft(
@@ -111,7 +112,6 @@ def _rule_judge_draft(
 def _try_llm_judge_draft(
     draft: dict[str, object],
     related_skills: list[dict[str, object]],
-    fallback: dict[str, object],
 ) -> dict[str, object] | None:
     if not settings.llm_is_configured:
         return None
@@ -119,7 +119,7 @@ def _try_llm_judge_draft(
     payload = {
         "draft": _draft_brief(draft),
         "related_skills": [_related_skill_brief(skill) for skill in related_skills[:5]],
-        "fallback_judgment": fallback,
+        "decision_policy": _decision_policy(draft, related_skills),
     }
     try:
         llm = ChatOpenAI(
@@ -134,9 +134,18 @@ def _try_llm_judge_draft(
                 {
                     "role": "system",
                     "content": (
-                        "You judge whether a draft reusable skill should be added as a new skill, "
-                        "merged into an existing related skill, or ignored. Be conservative about "
-                        "merging; merge only when the draft and target share the same job-to-be-done. "
+                        "You are the primary governance judge for reusable agent skills. Decide whether "
+                        "a draft skill should be added as a new formal skill, merged into an existing "
+                        "formal skill, or ignored. Follow these rules strictly. "
+                        "Use merge when the draft updates, specializes, formats, constrains, or extends "
+                        "an existing skill that has the same job-to-be-done or domain workflow. Output "
+                        "format changes, style constraints, required sections, and extra workflow steps "
+                        "usually belong in merge when the target skill already performs the underlying "
+                        "task. Use add only when the draft represents a genuinely separate reusable "
+                        "capability that should coexist with the related skills. Never choose add when "
+                        "the draft name already matches an existing formal skill name; choose merge into "
+                        "that skill instead. Use ignore for weak, temporary, one-off, or non-actionable "
+                        "drafts. If action is merge, target_skill must be one of related_skills. "
                         "Return JSON only with shape: "
                         "{\"action\":\"add|merge|ignore\",\"target_skill\":null,"
                         "\"confidence\":0.0,\"merge_risk\":\"low|medium|high\","
@@ -152,7 +161,7 @@ def _try_llm_judge_draft(
             ]
         )
         data = _parse_json_response(getattr(response, "content", ""))
-        return _normalize_llm_judgment(data, related_skills, fallback)
+        return _normalize_llm_judgment(data, related_skills)
     except (APIConnectionError, json.JSONDecodeError, TypeError, ValueError):
         return None
 
@@ -160,7 +169,6 @@ def _try_llm_judge_draft(
 def _normalize_llm_judgment(
     data: dict[str, Any],
     related_skills: list[dict[str, object]],
-    fallback: dict[str, object],
 ) -> dict[str, object] | None:
     action = str(data.get("action", "")).strip().lower()
     if action not in {"add", "merge", "ignore"}:
@@ -185,7 +193,7 @@ def _normalize_llm_judgment(
 
     reason = _clean_text(data.get("reason", ""), limit=600)
     if not reason:
-        reason = str(fallback.get("reason", "LLM governance decision."))
+        reason = "LLM governance decision."
 
     patch_intent = data.get("patch_intent", {})
     if not isinstance(patch_intent, dict):
@@ -203,8 +211,36 @@ def _normalize_llm_judgment(
             "add_constraints": _coerce_string_list(patch_intent.get("add_constraints")),
             "add_workflow": _coerce_string_list(patch_intent.get("add_workflow")),
         },
-        "fallback_action": fallback.get("action"),
-        "fallback_target_skill": fallback.get("target_skill"),
+    }
+
+
+def _decision_policy(
+    draft: dict[str, object],
+    related_skills: list[dict[str, object]],
+) -> dict[str, object]:
+    draft_name = str(draft.get("name", "")).strip()
+    related_names = [str(skill.get("name", "")).strip() for skill in related_skills]
+    exact_name_match = next(
+        (name for name in related_names if name and name == draft_name),
+        None,
+    )
+    top_skill = related_skills[0] if related_skills else None
+    return {
+        "judge_is_primary": True,
+        "fallback_is_not_provided": True,
+        "existing_related_skill_names": related_names,
+        "draft_name_conflicts_with_existing_skill": exact_name_match is not None,
+        "required_action_for_name_conflict": "merge" if exact_name_match else None,
+        "required_target_for_name_conflict": exact_name_match,
+        "top_related_skill": str(top_skill.get("name", "")) if top_skill else None,
+        "merge_guidance": (
+            "Prefer merge when the draft changes output format, response style, constraints, "
+            "or workflow details for an existing skill that already handles the same task."
+        ),
+        "add_guidance": (
+            "Choose add only for a distinct reusable capability, not for a richer policy around "
+            "an already related skill."
+        ),
     }
 
 
