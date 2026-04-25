@@ -183,6 +183,50 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8002/api
 http://localhost:3000
 ```
 
+## 基本用法
+
+启动后打开 `http://localhost:3000`。工作台分为三栏：左侧是会话和正式技能，中间是聊天区，右侧是记忆、草稿和技能检查面板。
+
+### 1. 发送消息并观察 Agent 过程
+
+点击 `New Session` 创建会话，或直接在当前会话输入消息。发送天气、总结、改写、翻译等请求后，中间区域会显示本轮对话，`Agent process` 会展示 query rewrite、skill retrieval、skill selection 和最终回复生成过程。
+
+![发送消息后的 Agent process](./docs/assets/chat-process.png)
+
+### 2. 治理长期记忆候选
+
+如果对话里出现了稳定偏好、长期指令或项目事实，右侧 `Memory Candidates` 会出现候选记忆。你可以选择 `Promote` 写入 `backend/memory/MEMORY.md`，也可以选择 `Ignore` 丢弃本次候选。
+
+![Memory Candidates 面板](./docs/assets/memory-candidates.png)
+
+### 3. 治理技能草稿
+
+如果系统从对话里抽取出可复用工作流，右侧 `Session Drafts` 会出现技能草稿。通常建议先点 `Preview` 查看合并预览；如果草稿是对已有技能的补充，选择 `Merge`；如果是全新的可复用能力，才选择 `Promote`。
+
+![Session Drafts 面板](./docs/assets/session-drafts.png)
+
+### 4. 查看正式技能
+
+左侧 `Formal Skills` 会展示当前正式技能，例如初始化保留的 `get_weather`。右侧 `Skill Inspector` 可以查看技能元数据、完整 `SKILL.md`、lineage 和 merge history。
+
+![Skill Inspector 面板](./docs/assets/skill-inspector.png)
+
+推荐用下面这些问题做首次验证：
+
+```text
+南京明天的天气怎么样？
+```
+
+```text
+以后回答我尽量简洁，不要分点。
+```
+
+```text
+以后查询天气时，请固定输出天气概况、穿衣建议、出行风险和适合拍照时间。
+```
+
+这些请求可以分别验证 Skill Gateway、Memory Dreaming 和 Skill Draft / Governance 链路。
+
 ## 种子技能
 
 初始化仓库只保留一个正式技能：
