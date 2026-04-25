@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import shutil
 from pathlib import Path
 from typing import Any
 
+from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core import SimpleDirectoryReader
 from llama_index.core import StorageContext
 from llama_index.core import VectorStoreIndex
@@ -14,10 +16,54 @@ from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.schema import NodeWithScore
 from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.retrievers.bm25 import BM25Retriever
+from openai import OpenAI
+from pydantic import Field
 
 from backend.config import settings
 from backend.retrieval.text_matcher import BM25_TOKEN_PATTERN_TEXT
 from backend.retrieval.text_matcher import tokenize_for_bm25
+
+
+OPENAI_EMBEDDING_MODELS = {
+    "text-embedding-ada-002",
+    "text-embedding-3-small",
+    "text-embedding-3-large",
+}
+
+
+class OpenAICompatibleEmbedding(BaseEmbedding):
+    """Minimal embedding adapter for OpenAI-compatible providers with custom model names."""
+
+    api_key: str = Field(exclude=True)
+    api_base: str
+
+    def _client(self) -> OpenAI:
+        return OpenAI(api_key=self.api_key, base_url=self.api_base)
+
+    def _create_embeddings(self, texts: list[str]) -> list[list[float]]:
+        response = self._client().embeddings.create(
+            model=self.model_name,
+            input=texts,
+        )
+        return [
+            list(item.embedding)
+            for item in sorted(response.data, key=lambda item: item.index)
+        ]
+
+    def _get_query_embedding(self, query: str) -> list[float]:
+        return self._create_embeddings([query])[0]
+
+    async def _aget_query_embedding(self, query: str) -> list[float]:
+        return await asyncio.to_thread(self._get_query_embedding, query)
+
+    def _get_text_embedding(self, text: str) -> list[float]:
+        return self._create_embeddings([text])[0]
+
+    def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
+        return self._create_embeddings(texts)
+
+    async def _aget_text_embeddings(self, texts: list[str]) -> list[list[float]]:
+        return await asyncio.to_thread(self._get_text_embeddings, texts)
 
 
 class BaseHybridIndexStore:
@@ -225,9 +271,16 @@ class BaseHybridIndexStore:
     def _rank_score(self, rank: int) -> float:
         return 1.0 / float(rank + 1)
 
-    def _build_embed_model(self) -> OpenAIEmbedding | None:
+    def _build_embed_model(self) -> BaseEmbedding | None:
         if not settings.embedding_is_configured:
             return None
+        if settings.embedding_model not in OPENAI_EMBEDDING_MODELS:
+            return OpenAICompatibleEmbedding(
+                model_name=settings.embedding_model,
+                embed_batch_size=100,
+                api_key=settings.embedding_api_key,
+                api_base=settings.embedding_base_url,
+            )
         return OpenAIEmbedding(
             model=settings.embedding_model,
             api_key=settings.embedding_api_key,
