@@ -1,169 +1,266 @@
 # ClawForge
 
-ClawForge 是一个本地优先、文件驱动、透明可控的 AI Agent 技能工作台。
+ClawForge 是一个本地优先、文件驱动的 AI Agent 技能工作台。它把聊天、Prompt 组装、技能激活、长期记忆候选、技能草稿生成、技能治理、版本历史和回滚放在同一个项目里，方便你在本地观察和演化一个 Agent 的技能系统。
 
-它把本地 Agent 的几类核心能力统一到一个项目里：
+当前仓库已经清理为初始化状态：运行数据、测试数据、索引和历史 registry 都不随仓库提交。正式技能库里只保留一个种子技能：`backend/skills/get_weather`。
 
-- 会话与聊天
-- Prompt 文件组装
-- 长期记忆与知识检索
-- 工具驱动执行
-- Skill Gateway
-- Skill Draft 生成
-- Skill Governance
-- Skill Versioning
-- 前端工作台观察与治理
+## 功能概览
 
-它的目标不是只做一个“会聊天”的应用，而是把请求处理、技能激活、经验沉淀、技能治理和版本演化放进同一套本地系统中。
+- FastAPI 后端，提供 Chat、Session、File、Gateway、Draft、Skill、Memory API。
+- Next.js 前端工作台，支持流式聊天、Agent 过程观察、会话管理、草稿治理、记忆候选治理和技能查看。
+- 正式技能以 `backend/skills/*/SKILL.md` 文件存在。
+- Skill Gateway 会按当前请求检索和筛选相关技能，而不是把全部技能塞进 Prompt。
+- 对话结束后会抽取可复用技能草稿，支持人工 promote、merge preview、merge、ignore 和 rollback。
+- 对话结束后会抽取长期记忆候选，支持人工 promote 或 ignore。
+- 默认使用 BM25 检索；如果配置了 OpenAI-compatible embedding，则会额外启用向量检索。
 
-## 项目定位
+## 技术栈
 
-ClawForge 面向的是一种可长期使用、可持续演进的本地 Agent 工作方式。
-
-系统主要解决四类问题：
-
-1. 当前这轮请求到底该激活哪些技能
-2. 对话中暴露出的稳定做事方式如何沉淀为技能草稿
-3. 草稿如何进入正式技能库而不污染已有技能
-4. 技能的使用、合并、版本和来源如何被持续追踪
-
-因此，ClawForge 的核心目标不是“堆更多 Prompt”，而是建设一个：
-
-```text
-可检索
-可激活
-可沉淀
-可治理
-可版本化
-```
-
-的本地技能系统。
-
-## 技术选型
-
-| 层级 | 技术 | 说明 |
+| 层级 | 技术 | 作用 |
 | --- | --- | --- |
-| 后端框架 | FastAPI + Uvicorn | 异步 HTTP 与 SSE 流式响应 |
-| Agent 引擎 | LangChain `create_agent` | 兼容工具驱动 Agent 运行时 |
-| 模型接口 | OpenAI-compatible Chat API | 默认可走 `mock`，也可接兼容 OpenAI 的 LLM 服务 |
-| 检索 | LlamaIndex Core + BM25 | 混合检索底座，用于 skill / memory / knowledge |
-| Embedding | OpenAI-compatible Embedding API | 默认模型为 `text-embedding-3-small` |
-| 前端框架 | Next.js 15 + React 19 | 本地工作台 UI |
-| 存储 | 本地文件系统 | Markdown + JSON + 本地索引目录 |
+| 后端 | FastAPI + Uvicorn | HTTP API 与 SSE 流式响应 |
+| Agent 运行时 | LangChain | OpenAI-compatible Chat API 与工具调用 |
+| 检索 | LlamaIndex + BM25 | 技能、记忆、知识库检索 |
+| 前端 | Next.js 15 + React 19 | 本地工作台界面 |
+| 存储 | 本地文件系统 | Markdown、JSON、索引和 registry 文件 |
 
-## 当前能力
-
-当前仓库已经不是脚手架状态，而是具备一套可支撑单用户本地使用的后端基线。它仍然不是多用户生产服务，但聊天、记忆、技能激活、技能治理和版本回滚已经形成可运行闭环。
-
-### 后端已具备
-
-- FastAPI 应用入口与生命周期初始化
-- Chat / Sessions / Files / Gateway / Drafts / Skills API
-- Memory Candidates API
-- Session 持久化与超窗 summary 压缩
-- Prompt 组装
-- 结构化 Memory Record 写入与检索
-- Memory Dreaming 候选生成与高置信自动晋升
-- Knowledge 检索
-- 工具驱动 Agent 运行时
-- Skill Gateway 注入决策与命中证据记录
-- LLM + fallback 的 Skill Draft 提取
-- LLM + fallback 的 Skill Governance Judge
-- Merge Preview / Promote / Merge / Ignore 治理闭环
-- Merge Snapshot 与 Rollback API
-- Usage / Lineage / Merge History / Stale Audit
-
-### 前端已具备
-
-- Session 列表与切换
-- Chat 面板
-- SSE 流式消息展示
-- Activated Skills 面板
-- Session Drafts 面板
-- Draft Governance 操作
-- Draft / Skill Inspector
-- Usage / Lineage / Stale Audit 展示
-
-## 项目结构
+## 目录结构
 
 ```text
 ClawForge/
-├── backend/
-│   ├── app.py                 # FastAPI 入口，生命周期初始化
-│   ├── config.py              # 环境变量与路径配置
-│   ├── api/                   # API 路由层
-│   ├── graph/                 # 会话、Prompt、Agent 主链路
-│   ├── gateway/               # 技能激活链路
-│   ├── evolution/             # 技能学习与治理链路
-│   ├── retrieval/             # 通用检索底座
-│   ├── tools/                 # Agent 可调用工具
-│   ├── workspace/             # Prompt 组件文件
-│   ├── memory/                # 长期记忆
-│   ├── knowledge/             # 本地知识库
-│   ├── sessions/              # 会话 JSON
-│   ├── skills/                # 正式技能
-│   ├── skill_drafts/          # 技能草稿
-│   ├── skill_registry/        # 索引、统计、历史
-│   └── storage/               # 索引和运行时状态
-├── frontend/
-│   └── src/
-│       └── app/               # Next.js 页面与样式
-├── docs/                      # PRD、系统设计、开发计划等文档
-└── tests/                     # 测试与本地验证脚本
++-- backend/
+|   +-- app.py                 # FastAPI 应用入口和启动初始化
+|   +-- config.py              # 环境变量和本地路径配置
+|   +-- api/                   # HTTP 路由
+|   +-- graph/                 # 会话、Prompt、Agent 运行时、索引
+|   +-- gateway/               # 技能检索、筛选和上下文注入
+|   +-- evolution/             # 草稿抽取、判断、合并、版本、registry
+|   +-- memory_dreaming/       # 长期记忆候选抽取
+|   +-- retrieval/             # BM25 / LlamaIndex 检索底座
+|   +-- tools/                 # Agent 工具
+|   +-- workspace/             # Prompt 组件：SOUL、IDENTITY、USER、AGENTS
+|   +-- skills/                # 正式技能；当前种子技能为 get_weather
+|   +-- sessions/              # 运行时 session JSON
+|   +-- memory/                # 运行时 MEMORY.md 和 memory_candidates.json
+|   +-- knowledge/             # 本地知识库文件
+|   +-- skill_drafts/          # 运行时技能草稿 Markdown
+|   +-- skill_registry/        # 运行时索引、lineage、merge history
+|   +-- storage/               # 运行时检索索引和日志
++-- frontend/
+|   +-- src/app/               # Next.js 工作台界面
++-- docs/                     # 产品和设计文档
++-- tests/                    # 后端测试与本地验证脚本
 ```
 
-## 环境配置
+## 快速开始
 
-后端配置来自 `backend/.env`，默认通过 `backend/config.py` 读取。
+### 环境要求
 
-关键配置包括：
+- 推荐 Python 3.11+
+- 推荐 Node.js 20+
+- OpenAI-compatible Chat API key 可选但推荐配置；不配置时后端会退回 mock / 规则逻辑，真实回答和自动治理质量会受限。
 
-- `APP_HOST` / `APP_PORT`
-- `LLM_PROVIDER`
-- `LLM_API_KEY`
-- `LLM_BASE_URL`
-- `LLM_MODEL`
-- `DREAMING_MIN_CONFIDENCE`
-- `DREAMING_MAX_CANDIDATES`
-- `MEMORY_AUTO_PROMOTE_MIN_CONFIDENCE`
-- `EMBEDDING_API_KEY`
-- `EMBEDDING_BASE_URL`
-- `EMBEDDING_MODEL`
-
-如果没有配置可用 LLM，系统会自动退回 `mock` 模式。
-
-## 启动方式
-
-推荐使用本地 conda 环境：
+### 1. 克隆项目
 
 ```bash
-conda activate mini-claw
+git clone https://github.com/lazy-923/ClawForge.git
+cd ClawForge
 ```
 
-### 启动后端
+### 2. 配置后端
+
+安装后端依赖：
 
 ```bash
 pip install -r backend/requirements.txt
+```
+
+复制环境变量文件：
+
+```bash
+# Windows PowerShell
+Copy-Item backend\.env.example backend\.env
+
+# macOS / Linux
+cp backend/.env.example backend/.env
+```
+
+编辑 `backend/.env`：
+
+```env
+APP_PORT=8002
+API_PREFIX=/api
+
+# 用于真实 LLM 回复。
+# ClawForge 通过 ChatOpenAI 使用 OpenAI-compatible Chat API。
+LLM_API_KEY=
+LLM_BASE_URL=
+LLM_MODEL=
+LLM_TEMPERATURE=0.2
+
+# 可选。不配置时，技能 / 记忆 / 知识库检索只使用 BM25。
+EMBEDDING_API_KEY=
+EMBEDDING_BASE_URL=
+EMBEDDING_MODEL=
+```
+
+这里的 LLM 配置不绑定具体供应商。只要服务兼容 OpenAI Chat API，就可以通过 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 接入。
+
+阿里云百炼 / DashScope 兼容模式示例：
+
+```env
+LLM_API_KEY=your-api-key
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+LLM_MODEL=qwen3.6-flash
+LLM_TEMPERATURE=0.2
+
+EMBEDDING_API_KEY=your-api-key
+EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+EMBEDDING_MODEL=text-embedding-v4
+```
+
+Embedding 是可选的。只有同时配置 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL` 和 `EMBEDDING_MODEL` 时，系统才会启用 OpenAI-compatible 向量检索；否则项目仍然可以使用 BM25 关键词检索正常运行。
+
+### 3. 启动后端
+
+```bash
 uvicorn backend.app:app --host 0.0.0.0 --port 8002 --reload
 ```
 
-### 启动前端
+后端地址：
+
+- API base: `http://127.0.0.1:8002/api`
+- OpenAPI 文档: `http://127.0.0.1:8002/docs`
+
+后端启动时会自动扫描技能、重建 skill / memory / knowledge 索引，并初始化 Agent 运行时。
+
+### 4. 配置前端
 
 ```bash
 cd frontend
 npm install
+```
+
+复制前端环境变量文件：
+
+```bash
+# Windows PowerShell
+Copy-Item .env.example .env.local
+
+# macOS / Linux
+cp .env.example .env.local
+```
+
+默认前端 API 配置：
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8002/api
+```
+
+### 5. 启动前端
+
+```bash
 npm run dev
 ```
 
-### 前端配置
+打开：
 
-```bash
-copy frontend\\.env.example frontend\\.env.local
+```text
+http://localhost:3000
 ```
 
-如果后端地址不是 `http://127.0.0.1:8002/api`，可以在 `frontend/.env.local` 中修改 `NEXT_PUBLIC_API_BASE_URL`。
+## 种子技能
 
-### 前端验证
+初始化仓库只保留一个正式技能：
+
+```text
+backend/skills/get_weather/SKILL.md
+```
+
+该技能用于按城市查询天气，并要求 Agent 用四个固定部分回答：
+
+- `Weather Overview`
+- `Clothing Advice`
+- `Travel Risk`
+- `Suitable Photography Time`
+
+## 主要运行链路
+
+```text
+user message
+-> session_manager.ensure_session()
+-> query_rewriter
+-> skill_retriever
+-> skill_selector
+-> skill context injection
+-> agent runtime
+-> save user / assistant messages
+-> memory dreaming
+-> evolution runner
+```
+
+流式聊天 API 会发送 process、skill hit、token、title、done 等事件，前端据此展示 Agent 运行过程和流式回答。
+
+## 技能学习链路
+
+```text
+chat done
+-> draft extractor
+-> related skill finder
+-> skill judge
+-> write draft markdown
+-> frontend governance
+-> promote / merge-preview / merge / ignore
+-> registry, lineage, merge history, and index refresh
+```
+
+如果配置了 LLM，`skill_judge.py` 会优先使用 LLM 判断草稿应该 add、merge 还是 ignore。LLM 不可用时会退回规则判断。合并前会生成 snapshot，因此后续可以 rollback。
+
+## 长期记忆链路
+
+```text
+chat done
+-> dreaming_service.extract_candidates_for_session()
+-> memory_candidates.json
+-> pending candidate
+-> manual promote / ignore
+-> MEMORY.md
+-> memory index rebuild
+```
+
+长期记忆不会整文件注入每一轮 Prompt。系统会按当前 message 检索相关记忆片段，并只把命中的片段作为 `[Relevant Memory]` 注入。
+
+## 主要 API
+
+| API | 作用 |
+| --- | --- |
+| `POST /api/chat` | 聊天入口，支持 JSON 或 SSE 流式响应 |
+| `GET /api/sessions` | 获取 session 列表 |
+| `POST /api/sessions` | 创建 session |
+| `DELETE /api/sessions/{session_id}` | 删除 session |
+| `GET /api/drafts` | 获取技能草稿列表 |
+| `POST /api/drafts/{draft_id}/merge-preview` | 预览草稿合并 |
+| `POST /api/drafts/{draft_id}/promote` | 将草稿提升为正式技能 |
+| `POST /api/drafts/{draft_id}/merge` | 合并草稿到正式技能 |
+| `POST /api/drafts/{draft_id}/ignore` | 忽略草稿 |
+| `GET /api/skills` | 获取正式技能列表 |
+| `GET /api/skills/{skill_name}/lineage` | 查看技能 lineage |
+| `GET /api/skills/{skill_name}/merge-history` | 查看技能合并历史 |
+| `POST /api/skills/{skill_name}/rollback` | 回滚最近一次可回滚合并 |
+| `GET /api/memory/candidates` | 获取记忆候选列表 |
+| `POST /api/memory/candidates` | 创建记忆候选 |
+| `POST /api/memory/candidates/{candidate_id}/promote` | 提升记忆候选 |
+| `POST /api/memory/candidates/{candidate_id}/ignore` | 忽略记忆候选 |
+
+## 测试
+
+后端测试：
+
+```bash
+pytest tests
+```
+
+前端检查：
 
 ```bash
 cd frontend
@@ -174,454 +271,31 @@ npm run test:smoke
 npm run test:e2e
 ```
 
-默认访问地址：
+`npm run test:smoke` 需要先启动后端。
 
-- 前端：`http://localhost:3000`
-- 后端：`http://localhost:8002`
+## 运行数据
 
-## 系统全景
-
-系统整体可以理解成六层：
+运行时生成的数据不会进入 Git。常见运行路径包括：
 
 ```text
-Frontend Workspace
-    |
-API Layer
-    |
-Serving Layer
-    |- Session & Chat Flow
-    |- Skill Gateway
-    |- Prompt Builder
-    |- Agent Runtime
-    |- Tools
-    |
-Learning Layer
-    |- Evolution Runner
-    |- Draft Extractor
-    |- Related Skill Finder
-    |- Skill Judge
-    |- Skill Merger
-    |- Promotion / Registry
-    |
-Retrieval Layer
-    |- text matcher
-    |- llamaindex hybrid store
-    |
-Storage Layer
-    |- skills/
-    |- skill_drafts/
-    |- skill_registry/
-    |- sessions/
-    |- memory/
-    |- knowledge/
-    |- storage/
-```
-
-## 两条核心链路
-
-### 1. 在线链路：Serving Path
-
-每轮请求先走技能激活链路，再进入 Agent：
-
-```text
-user message
--> session load
--> query rewrite
--> skill retrieval
--> skill selection
--> skill context injection
--> agent response
--> message persist
-```
-
-### 2. 后台链路：Learning Path
-
-每轮对话结束后，再异步分析是否应沉淀为技能草稿：
-
-```text
-chat done
--> evolution enqueue
--> draft extraction
--> related skill retrieval
--> add / merge / ignore suggestion
--> wait for governance action
--> registry update
-```
-
-## 后端架构详解
-
-## 1. 应用入口 `backend/app.py`
-
-启动时通过 FastAPI lifespan 完成几件初始化工作：
-
-1. 扫描 `skills/` 目录，读取技能元数据
-2. 重建 skill / memory / knowledge 三类索引
-3. 初始化 AgentManager
-4. 在关闭时清理 `EvolutionRunner` 挂起任务
-
-这样做的目的是让：
-
-- Skill Gateway 直接可用
-- Memory 与 Knowledge 检索直接可用
-- Agent 每次请求都建立在最新文件状态上
-
-## 2. API 层 `backend/api/`
-
-API 层负责接住前端请求，并调用下层模块。
-
-当前主要路由包括：
-
-- `chat.py`：聊天主入口
-- `sessions.py`：会话管理
-- `files.py`：文件读取与保存
-- `gateway.py`：最近一轮 skill hit 查询
-- `drafts.py`：draft 列表、详情、merge-preview 与治理
-- `skills.py`：usage、lineage、merge-history、rollback、stale audit
-- `memory.py`：memory candidate 列表、创建、promote 与 ignore
-- `health.py`：健康检查
-
-其中 `POST /api/chat` 是最核心的接口，它负责：
-
-1. 创建或读取 session
-2. 读取当前 session 历史
-3. 执行 Skill Gateway
-4. 调用 AgentManager
-5. 以 JSON 或 SSE 返回结果
-6. 保存 user / assistant 消息
-7. 同步触发 memory dreaming，生成 memory candidate 并可能自动晋升高置信记忆
-8. 异步触发 EvolutionRunner
-
-## 3. Session 管理 `backend/graph/session_manager.py`
-
-每个 session 都对应一个本地 JSON 文件：
-
-```text
-backend/sessions/<session_id>.json
-```
-
-它负责：
-
-- 创建 session
-- 判断 session 是否存在
-- 读取会话
-- 保存消息
-- 维护 `updated_at`
-- 在首轮对话后生成默认标题
-
-当前实现中，同一个 session 的历史消息会在后续轮次直接带入 Agent 输入，不依赖 memory 检索来补历史。
-
-## 4. Prompt Builder `backend/graph/prompt_builder.py`
-
-系统每次调用 Agent 前，都会重新读取并拼装 Prompt 组件。
-
-当前会读取：
-
-- `workspace/SOUL.md`
-- `workspace/IDENTITY.md`
-- `workspace/USER.md`
-- `workspace/AGENTS.md`
-- Skill Gateway 本轮激活的 Activated Skills 上下文
-
-这样做的好处是：
-
-- 工作区文件一改，下一次请求立刻生效
-- 只有 Gateway 改写、检索、筛选后的相关技能进入上下文
-- 长期记忆只通过相关性检索进入本轮上下文，避免全量 Prompt 膨胀
-
-## 5. Agent Runtime `backend/graph/agent.py`
-
-AgentManager 当前支持两种模式：
-
-1. `mock`
-2. 兼容 OpenAI API 的 LangChain Agent 模式
-
-每轮调用时，它会：
-
-1. 先执行 memory retrieval
-2. 再组装 messages
-3. 创建 Agent
-4. 调用模型并流式返回结果
-
-在流式场景下，前端能接收到的事件类型包括：
-
-- `skill_hit`
-- `retrieval`
-- `token`
-- `done`
-
-## 6. Skill Gateway `backend/gateway/`
-
-Skill Gateway 负责决定“当前请求到底该激活哪些技能”。
-
-模块拆分如下：
-
-- `query_rewriter.py`：把消息和最近历史压缩成检索 query
-- `skill_retriever.py`：调用 skill index 做候选召回
-- `skill_selector.py`：按分数和证据筛选技能
-- `skill_context_builder.py`：生成紧凑的 Activated Skills 文本块
-- `skill_indexer.py`：把 skill 转成统一检索文档并建立索引
-- `gateway_manager.py`：串起整条链路，并写入 last-hit 与 usage 统计
-
-Gateway 的核心目标是：
-
-- 不把全量技能塞进 Prompt
-- 只保留少量相关技能
-- 让命中结果可解释
-
-## 7. Evolution `backend/evolution/`
-
-这部分负责对话后的技能沉淀与治理。
-
-当前模块包括：
-
-- `evolution_runner.py`：后台异步调度
-- `draft_extractor.py`：从最近多轮对话提取 DraftCandidate，优先走 LLM，失败时回退规则提取
-- `draft_service.py`：落盘 draft 并串起相关治理逻辑
-- `related_skill_finder.py`：寻找相似正式技能
-- `skill_judge.py`：判断 add / merge / ignore，优先走 LLM，失败时回退规则判断
-- `skill_merger.py`：生成 merge plan / preview，并结构化合并到 skill 文件
-- `skill_versioning.py`：版本号、snapshot 与 rollback 元数据
-- `promotion_service.py`：执行 promote / merge / ignore，并提供 merge preview
-- `rollback_service.py`：根据 snapshot 执行最近一次 merge 的 rollback
-- `registry_service.py`：维护 registry JSON 文件
-
-它的目标不是自动无脑写库，而是：
-
-```text
-抽取
--> 判断
--> 给建议
--> 等待人工治理
--> 更新索引和历史
-```
-
-## 记忆系统
-
-ClawForge 的记忆不是单一概念，而是三层结构。
-
-### 1. Session Memory
-
-也就是当前 session 的 `messages`。
-
-它负责：
-
-- 维持同一会话的上下文连续性
-- 保存用户消息与助手消息
-- 为后续轮次提供最近窗口内的历史
-- 当历史超过 `SESSION_HISTORY_MAX_MESSAGES` 时，自动把溢出的旧消息压缩进 `summary`
-- 压缩优先走 `backend/graph/session_compactor.py`，LLM 不可用时会稳定回退到规则摘要
-- 截断后会把 `summary` 作为 `[Session Summary]` 补充给 Agent
-
-### 2. Long-term Memory
-
-也就是：
-
-```text
+backend/.test-tmp/
 backend/memory/MEMORY.md
+backend/memory/memory_candidates.json
+backend/storage/*
+backend/skill_registry/*.json
+backend/skill_registry/snapshots/
+backend/sessions/*.json
+backend/skill_drafts/*.md
 ```
 
-它不会作为静态 Prompt 组件全量注入，而是在每轮请求时按当前 message 做相关性检索，并把命中片段作为 `[Relevant Memory]` 补充。
+仓库通过 `.gitkeep` 保留这些目录，clone 后目录结构仍然存在。
 
-长期记忆写入不直接来自聊天历史。新的长期记忆会先由 memory dreaming 抽取为 memory candidate；低置信候选保留为 `pending` 等待人工 promote，高置信候选会按 `MEMORY_AUTO_PROMOTE_MIN_CONFIDENCE` 自动晋升进 `MEMORY.md`。
+## 文档
 
-`MEMORY.md` 当前采用结构化 record，而不是简单 bullet：
+`docs/` 目录只保留适合公开展示的系统设计材料。README 以当前代码实现和运行方式为准。
 
-```md
-### Memory: concise_progress_updates
-Memory ID: mem_xxx
-Type: preference
-Scope: global
-Keywords: concise, progress, updates, short, answers
-When to apply: when tailoring response style, depth, format, or workflow to the user
-Memory: The user prefers concise progress updates and short answers.
-Source Session: session_xxx
-Confidence: 0.86
-Reason: Detected a durable preference in the latest session context.
-Evidence:
-- ...
-```
-
-这样做的目的有三个：
-
-- 每条长期记忆都是自包含片段，便于检索命中后直接注入
-- `Keywords / Type / Scope / When to apply` 本身会参与索引，提升 BM25 和向量召回质量
-- 来源、证据和置信度留在正式记忆文件里，方便审查和后续治理
-
-### 3. Knowledge Memory
-
-也就是：
-
-```text
-backend/knowledge/
-```
-
-它用于存放本地知识文档，主要通过 `search_knowledge_base` 工具按需检索。
-
-### 当前记忆工作方式
-
-每轮对话时，Agent 输入中同时可能包含三种上下文：
-
-1. 当前 session 的最近历史窗口
-2. 自动维护的 session summary
-3. 当前 message 触发的 relevant memory retrieval
-
-这三者并不互相替代。
-
-## 核心工具
-
-当前 Agent 内置五个核心工具：
-
-| 工具 | 文件 | 作用 |
-| --- | --- | --- |
-| `terminal` | `terminal_tool.py` | 在项目工作区内执行终端命令 |
-| `python_repl` | `python_repl_tool.py` | 执行短 Python 代码 |
-| `fetch_url` | `fetch_url_tool.py` | 抓取网页或 HTTP 资源 |
-| `read_file` | `read_file_tool.py` | 读取项目内文件 |
-| `search_knowledge_base` | `search_knowledge_tool.py` | 检索本地知识库 |
-
-此外还有一个关键辅助模块：
-
-- `skills_scanner.py`：扫描 `skills/*/SKILL.md` 并提取 metadata，供 Skill Gateway 索引与技能目录使用
-
-工具系统的核心意义是：
-
-- Skill 本身不是硬编码函数
-- Skill 是指导 Agent 如何组合使用工具的说明书
-- Agent 读取 skill 后，再用工具真正执行任务
-
-## 检索系统
-
-当前 skill / memory / knowledge 三类检索共用统一底座：
-
-- `backend/retrieval/text_matcher.py`
-- `backend/retrieval/llamaindex_store.py`
-
-底层能力包括：
-
-- term 抽取
-- BM25 检索
-- 向量检索
-- hybrid merge
-- 索引持久化
-- fingerprint 变化检测与自动重建
-
-这让三类检索可以共享逻辑，同时保持各自的索引边界。
-
-Memory 检索在统一底座上有一层专门适配：`memory_indexer` 会先把 `MEMORY.md` 解析成 `### Memory:` records，再把每条 record 作为独立 Document 交给 LlamaIndex / BM25。旧的简单 bullet 记忆仍会被兼容解析为 legacy records。
-
-## 前端架构概览
-
-前端当前是一个基于 Next.js 的本地工作台。
-
-当前真实目录很轻：
-
-```text
-frontend/src/app/
-├── layout.tsx
-├── page.tsx
-└── globals.css
-```
-
-职责上它承担三类事情：
-
-1. 聊天与会话切换
-2. 展示 skill hit、draft、usage、lineage、stale audit
-3. 提供治理入口和 Inspector 视图
-
-虽然实现上目前仍偏“联调工作台”，但它已经是系统的重要观察与治理界面，而不是单纯展示页。
-
-## 核心数据流
-
-### 用户发送一条消息
-
-```text
-前端
--> POST /api/chat
--> session_manager.ensure_session()
--> session_manager.load_session_for_agent()
--> gateway_manager.activate_skills()
--> agent_manager.astream()/collect_response()
--> session_manager.save_message(user)
--> session_manager.save_message(assistant)
--> evolution_runner.enqueue()
--> 前端更新消息与面板
-```
-
-### Memory 在请求中的作用
-
-```text
-user message
--> memory_indexer.retrieve(message)
--> 命中的 memory 片段作为 [Relevant Memory] 注入
--> 仅参与本次请求，不替代 session history
-```
-
-### Memory Candidate 治理
-
-```text
-POST /api/memory/candidates
--> pending memory candidate
--> high-confidence candidates may auto-promote
--> POST /api/memory/candidates/{candidate_id}/promote
--> append structured memory record to MEMORY.md
--> rebuild memory index
-```
-
-其中，`POST /api/chat` 在保存 user / assistant 消息后会同步触发 memory dreaming。候选会先进入 candidate 队列；当置信度达到 `MEMORY_AUTO_PROMOTE_MIN_CONFIDENCE` 时，会自动写入 `MEMORY.md` 并重建 memory index。
-
-### Draft 生成与治理
-
-```text
-chat done
--> evolution runner
--> draft extractor
--> related skill finder
--> skill judge
--> write draft markdown
--> update draft_index.json
--> frontend 展示 draft
--> user choose promote / merge-preview / merge / ignore
--> promotion service
--> build merge plan
--> snapshot old skill content before merge
--> refresh registry and indexes
--> optional rollback via /api/skills/{skill_name}/rollback
-```
-
-## 关键设计决策
-
-| 决策 | 理由 |
-| --- | --- |
-| 文件驱动而非数据库 | 所有状态对开发者透明可查 |
-| 每次请求重建 Prompt 组件 | workspace 与本轮激活技能修改后可立即生效 |
-| Skill Gateway 与 Learning Path 分离 | 在线回答与长期演化职责不同 |
-| 技能是 Markdown 工件 | 保持技能可读、可编辑、可治理 |
-| memory retrieval 结果不持久化到 session | 避免会话文件膨胀 |
-| 长期记忆必须先进入 candidate 队列 | 让自动抽取、人工 promote 和自动晋升共用同一治理入口 |
-| 高置信 memory candidate 可自动晋升 | 在保留来源与证据的前提下放宽写入门槛，让长期记忆可以变大 |
-| `MEMORY.md` 使用结构化 record | 让长期记忆更适合检索、审查和后续治理 |
-| skill / memory / knowledge 共用统一检索底座 | 保持检索策略一致、便于演进 |
-| Promote / Merge 需要人工确认 | 防止技能库自动污染 |
-| Merge 前先生成 preview 并保存 snapshot | 让 skill 变更可审计、可回滚 |
-
-## 当前开发重点
-
-后端当前可以先作为单用户本地工作台基线定版。后续重点不再是继续补后端大模块，而是围绕已落地链路做产品化、质量样本和安全边界。
-
-当前主线主要有三件事：
-
-1. 继续补真实样本与回放评估，让 Gateway、Memory Retrieval、Extractor 和 Judge 的质量变化可验证
-2. 强化工具权限、安全边界和运行观测，避免本地工具能力在非可信场景下失控
-3. 推进前端工作台产品化，补齐 Memory / Draft / Skill 治理体验与 diff / history 浏览
-
-## 文档入口
-
-如果你想快速理解项目，建议从这几份文档开始：
-
-- [产品需求文档](./docs/ClawForge%20产品需求文档.md)
 - [系统设计文档](./docs/ClawForge%20系统设计文档.md)
-- [开发计划](./docs/ClawForge%20项目开发计划.md)
 
-## 最终一句话
+## 当前定位
 
-ClawForge 的目标不是做一个“只会聊天”的 Agent，而是做一个能够把 **显式技能、技能激活、技能草稿、技能治理和技能演化** 统一起来的本地 Agent 技能工作台。
+ClawForge 目前是一个单用户、本地优先的 Agent 技能工作台，不是多租户生产服务。技能来自文件，激活来自检索，持久化变更需要经过治理后才进入正式技能库。

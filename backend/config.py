@@ -22,34 +22,22 @@ class Settings:
     app_host: str = _read_env("APP_HOST", "0.0.0.0")
     app_port: int = int(_read_env("APP_PORT", "8002"))
     api_prefix: str = _read_env("API_PREFIX", "/api")
-    llm_provider: str = _read_env("LLM_PROVIDER", "mock")
-    llm_api_key: str = _read_env(
-        "LLM_API_KEY",
-        _read_env("DASHSCOPE_API_KEY", _read_env("OPENAI_API_KEY", "")),
-    )
-    llm_base_url: str = _read_env(
-        "LLM_BASE_URL",
-        _read_env(
-            "OPENAI_BASE_URL",
-            "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        ),
-    )
-    llm_model: str = _read_env("LLM_MODEL", "qwen-plus")
+    llm_provider: str = _read_env("LLM_PROVIDER", "openai-compatible")
+    llm_api_key: str = _read_env("LLM_API_KEY", "")
+    llm_base_url: str = _read_env("LLM_BASE_URL", "")
+    llm_model: str = _read_env("LLM_MODEL", "")
     llm_temperature: float = float(_read_env("LLM_TEMPERATURE", "0.2"))
     query_rewrite_timeout_seconds: float = float(_read_env("QUERY_REWRITE_TIMEOUT_SECONDS", "8"))
     query_rewrite_max_retries: int = int(_read_env("QUERY_REWRITE_MAX_RETRIES", "1"))
-    session_compaction_model: str = _read_env("SESSION_COMPACTION_MODEL", _read_env("LLM_MODEL", "qwen-plus"))
+    session_compaction_model: str = _read_env("SESSION_COMPACTION_MODEL", _read_env("LLM_MODEL", ""))
     dreaming_enabled: bool = _read_env("DREAMING_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
     dreaming_min_confidence: float = float(_read_env("DREAMING_MIN_CONFIDENCE", "0.45"))
     dreaming_max_candidates: int = int(_read_env("DREAMING_MAX_CANDIDATES", "8"))
-    dreaming_model: str = _read_env("DREAMING_MODEL", _read_env("LLM_MODEL", "qwen-plus"))
+    dreaming_model: str = _read_env("DREAMING_MODEL", _read_env("LLM_MODEL", ""))
     memory_auto_promote_min_confidence: float = float(_read_env("MEMORY_AUTO_PROMOTE_MIN_CONFIDENCE", "0.72"))
-    embedding_api_key: str = _read_env("EMBEDDING_API_KEY", _read_env("OPENAI_API_KEY", ""))
-    embedding_base_url: str = _read_env(
-        "EMBEDDING_BASE_URL",
-        _read_env("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-    )
-    embedding_model: str = _read_env("EMBEDDING_MODEL", "text-embedding-3-small")
+    embedding_api_key: str = _read_env("EMBEDDING_API_KEY", "")
+    embedding_base_url: str = _read_env("EMBEDDING_BASE_URL", "")
+    embedding_model: str = _read_env("EMBEDDING_MODEL", "")
     rag_chunk_size: int = int(_read_env("RAG_CHUNK_SIZE", "256"))
     rag_chunk_overlap: int = int(_read_env("RAG_CHUNK_OVERLAP", "32"))
     rag_vector_top_k: int = int(_read_env("RAG_VECTOR_TOP_K", "6"))

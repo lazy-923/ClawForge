@@ -29,18 +29,3 @@ Find a concise weather summary for the user's requested city.
 8. Assess environmental factors to identify 'Travel Risks'.
 9. Evaluate lighting conditions to suggest 'Suitable Photography Time'.
 10. Format the final response using the four designated headers.
-
-## Merged Draft Updates
-### draft_20260425051504_6ab3cc
-- Version: 0.1.0 -> 0.1.1
-- Added Constraints:
-  - Output must strictly adhere to four specific sections: Weather Overview, Clothing Advice, Travel Risk, and Suitable Photography Time.
-  - Do not deviate from the requested structure.
-- Added Workflow Steps:
-  - Extract location and date from user query.
-  - Fetch detailed weather data (temperature, precipitation, wind, UV index).
-  - Generate 'Weather Overview' summarizing key metrics.
-  - Analyze temperature to formulate 'Clothing Advice'.
-  - Assess environmental factors to identify 'Travel Risks'.
-  - Evaluate lighting conditions to suggest 'Suitable Photography Time'.
-  - Format the final response using the four designated headers.
