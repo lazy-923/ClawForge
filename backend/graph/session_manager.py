@@ -136,6 +136,23 @@ class SessionManager:
         payload["title"] = title.strip() or "Untitled Session"
         self.write_session(session_id, payload)
 
+    def should_auto_title(self, session_id: str) -> bool:
+        payload = self.read_session(session_id)
+        title = str(payload.get("title", "")).strip()
+        return title in {"", "New Session", "Untitled Session"}
+
+    def generate_title_for_session(self, session_id: str, fallback_message: str) -> str:
+        payload = self.read_session(session_id)
+        for message in payload.get("messages", []):
+            if not isinstance(message, dict):
+                continue
+            if message.get("role") != "user":
+                continue
+            content = str(message.get("content", "")).strip()
+            if content:
+                return self.generate_title(content)
+        return self.generate_title(fallback_message)
+
     def generate_title(self, message: str) -> str:
         clean = " ".join(message.split())
         return clean[:48] or "New Session"

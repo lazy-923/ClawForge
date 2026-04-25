@@ -70,8 +70,8 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     history = session_manager.load_session_for_agent(session_id)
     title = (
-        session_manager.generate_title(request.message)
-        if created and not history
+        session_manager.generate_title_for_session(session_id, request.message)
+        if session_manager.should_auto_title(session_id)
         else None
     )
 
