@@ -27,7 +27,7 @@ class RetrievalQualityTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         memory_indexer.path = self._original_memory_path
 
-    def test_rewrite_query_removes_common_stop_words(self) -> None:
+    def test_rewrite_query_fallback_returns_original_message(self) -> None:
         with patch("backend.gateway.query_rewriter._try_llm_rewrite_query", return_value=None):
             query = rewrite_query(
                 "Please help me rewrite this summary for the team.",
@@ -37,11 +37,7 @@ class RetrievalQualityTestCase(unittest.TestCase):
                 ],
             )
 
-        self.assertIn("rewrite", query)
-        self.assertIn("summary", query)
-        self.assertNotIn("please", query.split())
-        self.assertNotIn("the", query.split())
-        self.assertNotIn("for", query.split())
+        self.assertEqual(query, "Please help me rewrite this summary for the team.")
 
     def test_rewrite_query_avoids_history_for_complete_new_request(self) -> None:
         with patch("backend.gateway.query_rewriter._try_llm_rewrite_query", return_value=None):
@@ -56,7 +52,7 @@ class RetrievalQualityTestCase(unittest.TestCase):
         self.assertIn("今天喀什什么天气", query)
         self.assertNotIn("shanghai", query)
 
-    def test_rewrite_query_uses_history_for_elliptical_follow_up(self) -> None:
+    def test_rewrite_query_fallback_does_not_inherit_history_for_elliptical_follow_up(self) -> None:
         with patch("backend.gateway.query_rewriter._try_llm_rewrite_query", return_value=None):
             query = rewrite_query(
                 "明天呢",
@@ -66,8 +62,25 @@ class RetrievalQualityTestCase(unittest.TestCase):
                 ],
             )
 
-        self.assertIn("shanghai", query)
-        self.assertIn("明天呢", query)
+        self.assertEqual(query, "明天呢")
+        self.assertNotIn("shanghai", query)
+
+    def test_rewrite_query_fallback_uses_current_subject_change_only(self) -> None:
+        with patch("backend.gateway.query_rewriter._try_llm_rewrite_query", return_value=None):
+            query = rewrite_query(
+                "上海呢",
+                [
+                    {"role": "user", "content": "你叫什么名字"},
+                    {"role": "assistant", "content": "我叫悠悠。"},
+                    {"role": "user", "content": "今天南京天气怎么样"},
+                    {"role": "assistant", "content": "今天南京天气是多云，气温 19，伴有西风 10公里。"},
+                ],
+            )
+
+        self.assertEqual(query, "上海呢")
+        self.assertNotIn("南京", query)
+        self.assertNotIn("气温", query)
+        self.assertNotIn("assistant", query)
 
     def test_rewrite_query_prefers_llm_query_when_available(self) -> None:
         with patch("backend.config.Settings.llm_is_configured", new_callable=PropertyMock) as configured:
@@ -102,10 +115,22 @@ class RetrievalQualityTestCase(unittest.TestCase):
 
         self.assertGreater(len(hits), 0)
         self.assertEqual(hits[0]["name"], "get_weather")
+        self.assertNotIn("professional_rewrite", [item["name"] for item in hits])
         self.assertIn("weather", hits[0]["matched_terms"])
         self.assertTrue(
             any(field in {"description", "triggers", "goal", "workflow"} for field in hits[0]["matched_fields"])
         )
+
+    def test_retrieve_skills_can_mix_original_and_rewritten_queries(self) -> None:
+        hits = retrieve_skills("shanghai weather", original_query="What about Shanghai?")
+
+        self.assertGreater(len(hits), 0)
+        self.assertEqual(hits[0]["name"], "get_weather")
+
+    def test_retrieve_skills_returns_only_threshold_matches(self) -> None:
+        hits = retrieve_skills("what is your name")
+
+        self.assertEqual(hits, [])
 
     def test_skill_selector_returns_injection_decision(self) -> None:
         hits = retrieve_skills("check weather forecast for shanghai")

@@ -36,6 +36,8 @@ class Settings:
     )
     llm_model: str = _read_env("LLM_MODEL", "qwen-plus")
     llm_temperature: float = float(_read_env("LLM_TEMPERATURE", "0.2"))
+    query_rewrite_timeout_seconds: float = float(_read_env("QUERY_REWRITE_TIMEOUT_SECONDS", "8"))
+    query_rewrite_max_retries: int = int(_read_env("QUERY_REWRITE_MAX_RETRIES", "1"))
     session_compaction_model: str = _read_env("SESSION_COMPACTION_MODEL", _read_env("LLM_MODEL", "qwen-plus"))
     dreaming_enabled: bool = _read_env("DREAMING_ENABLED", "true").lower() not in {"0", "false", "no", "off"}
     dreaming_min_confidence: float = float(_read_env("DREAMING_MIN_CONFIDENCE", "0.45"))
@@ -52,6 +54,8 @@ class Settings:
     rag_chunk_overlap: int = int(_read_env("RAG_CHUNK_OVERLAP", "32"))
     rag_vector_top_k: int = int(_read_env("RAG_VECTOR_TOP_K", "6"))
     rag_bm25_top_k: int = int(_read_env("RAG_BM25_TOP_K", "6"))
+    rag_min_score: float = float(_read_env("RAG_MIN_SCORE", "0.0"))
+    skill_retrieval_min_score: float = float(_read_env("SKILL_RETRIEVAL_MIN_SCORE", "0.45"))
     session_history_max_messages: int = int(_read_env("SESSION_HISTORY_MAX_MESSAGES", "20"))
     session_summary_max_chars: int = int(_read_env("SESSION_SUMMARY_MAX_CHARS", "2000"))
     session_summary_message_chars: int = int(_read_env("SESSION_SUMMARY_MESSAGE_CHARS", "240"))

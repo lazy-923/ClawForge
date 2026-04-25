@@ -5,7 +5,7 @@ from pathlib import Path
 
 from backend.config import settings
 from backend.evolution.registry_service import registry_service
-from backend.gateway.query_rewriter import rewrite_query
+from backend.gateway.query_rewriter import rewrite_query_result
 from backend.gateway.skill_context_builder import build_skill_context
 from backend.gateway.skill_retriever import retrieve_skills
 from backend.gateway.skill_selector import select_skills
@@ -24,15 +24,26 @@ class GatewayManager:
         message: str,
         history: list[dict[str, object]],
     ) -> dict[str, object]:
-        query = rewrite_query(message, history)
-        candidates = retrieve_skills(query)
+        rewrite = rewrite_query_result(message, history)
+        query = rewrite.query
+        candidates = retrieve_skills(query, original_query=message)
         selection = select_skills(
             message=message,
             query=query,
             history=history,
             candidates=candidates,
         )
-        return self.finalize_activation(session_id, query, candidates, selection)
+        return self.finalize_activation(
+            session_id,
+            query,
+            candidates,
+            selection,
+            rewrite_metadata={
+                "mode": rewrite.mode,
+                "reason": rewrite.reason,
+                "changed": query != message,
+            },
+        )
 
     def finalize_activation(
         self,
@@ -40,6 +51,7 @@ class GatewayManager:
         query: str,
         candidates: list[dict[str, object]],
         selection: dict[str, object],
+        rewrite_metadata: dict[str, object] | None = None,
     ) -> dict[str, object]:
         selected = list(selection["selected_skills"])
         context = build_skill_context(selected)
@@ -60,6 +72,7 @@ class GatewayManager:
             "rejected_skills": selection["rejected_skills"],
             "selection": selection,
             "context": context,
+            "rewrite": rewrite_metadata or {},
         }
         self._save_last_hit(session_id, payload)
         return payload

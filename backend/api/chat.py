@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from backend.evolution.evolution_runner import evolution_runner
 from backend.gateway.gateway_manager import gateway_manager
-from backend.gateway.query_rewriter import rewrite_query
+from backend.gateway.query_rewriter import rewrite_query_result
 from backend.gateway.skill_retriever import retrieve_skills
 from backend.gateway.skill_selector import select_skills
 from backend.graph.agent import agent_manager
@@ -144,16 +144,22 @@ async def chat(request: ChatRequest):
         )
 
         yield emit_process("rewrite", "Rewrite query", "running")
-        query = rewrite_query(request.message, history)
+        rewrite = rewrite_query_result(request.message, history)
+        query = rewrite.query
         yield emit_process(
             "rewrite",
             "Rewrite query",
             "completed",
             query,
+            {
+                "mode": rewrite.mode,
+                "reason": rewrite.reason,
+                "changed": query != request.message,
+            },
         )
 
         yield emit_process("skill_retrieval", "Retrieve skills", "running")
-        candidates = retrieve_skills(query)
+        candidates = retrieve_skills(query, original_query=request.message)
         candidate_names = [str(item.get("name", "")) for item in candidates[:8]]
         yield emit_process(
             "skill_retrieval",
@@ -191,6 +197,11 @@ async def chat(request: ChatRequest):
             query,
             candidates,
             selection,
+            rewrite_metadata={
+                "mode": rewrite.mode,
+                "reason": rewrite.reason,
+                "changed": query != request.message,
+            },
         )
         identity_context = _build_identity_context(skill_hit)
         yield _sse_message(

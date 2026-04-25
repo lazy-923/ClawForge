@@ -70,23 +70,55 @@ class BaseHybridIndexStore:
             }
         )
 
-    def retrieve(self, query: str, top_k: int = 3) -> list[dict[str, object]]:
-        if self._should_skip_query(query):
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 3,
+        min_score: float | None = None,
+    ) -> list[dict[str, object]]:
+        return self.retrieve_mixed(
+            vector_query=query,
+            bm25_query=query,
+            top_k=top_k,
+            min_score=min_score,
+        )
+
+    def retrieve_mixed(
+        self,
+        *,
+        vector_query: str,
+        bm25_query: str,
+        top_k: int = 3,
+        min_score: float | None = None,
+    ) -> list[dict[str, object]]:
+        if self._should_skip_query(vector_query) and self._should_skip_query(bm25_query):
             return []
 
-        query_context = self._build_query_context(query)
+        query_context = self._build_query_context(
+            self._combine_query_context(vector_query, bm25_query)
+        )
         self._maybe_rebuild()
 
-        bm25_hits = self._retrieve_bm25(query)
-        vector_hits = self._retrieve_vector(query)
+        bm25_hits = [] if self._should_skip_query(bm25_query) else self._retrieve_bm25(bm25_query)
+        vector_hits = [] if self._should_skip_query(vector_query) else self._retrieve_vector(vector_query)
         merged = self._merge_hits(query_context, vector_hits, bm25_hits)
-        return merged[:top_k]
+        threshold = settings.rag_min_score if min_score is None else min_score
+        filtered = [item for item in merged if self._passes_relevance_threshold(item, threshold)]
+        return filtered[:top_k]
 
     def _build_query_context(self, query: str) -> object:
         return query
 
     def _should_skip_query(self, query: str) -> bool:
         return not query.strip() or not tokenize_for_bm25(query)
+
+    def _combine_query_context(self, vector_query: str, bm25_query: str) -> str:
+        parts: list[str] = []
+        for query in (vector_query, bm25_query):
+            clean = " ".join(str(query or "").split())
+            if clean and clean not in parts:
+                parts.append(clean)
+        return " ".join(parts)
 
     def _maybe_rebuild(self) -> None:
         current_fingerprint = self._compute_fingerprint()
@@ -186,6 +218,9 @@ class BaseHybridIndexStore:
             modes = sorted(str(mode) for mode in retrieval_modes)
         item["retrieval_mode"] = "hybrid" if len(modes) > 1 else (modes[0] if modes else "bm25")
         item.pop("retrieval_modes", None)
+
+    def _passes_relevance_threshold(self, item: dict[str, object], min_score: float) -> bool:
+        return float(item.get("score", 0.0)) >= min_score
 
     def _rank_score(self, rank: int) -> float:
         return 1.0 / float(rank + 1)

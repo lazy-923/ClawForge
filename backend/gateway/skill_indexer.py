@@ -13,6 +13,19 @@ from backend.retrieval.text_matcher import extract_terms
 from backend.tools.skills_scanner import list_skill_metadata
 
 
+CJK_SKILL_TERM_ALIASES = {
+    "天气": {"weather", "forecast"},
+    "预报": {"forecast", "weather"},
+    "城市": {"city"},
+    "润色": {"rewrite", "professional"},
+    "改写": {"rewrite", "professional"},
+    "重写": {"rewrite"},
+    "专业": {"professional"},
+    "正式": {"professional"},
+    "简洁": {"concise"},
+}
+
+
 def _build_skill_document(skill: dict[str, object]) -> Document:
     constraints = skill.get("constraints", [])
     workflow = skill.get("workflow", [])
@@ -46,11 +59,37 @@ class SkillIndexer(BaseHybridIndexStore):
     def __init__(self) -> None:
         super().__init__(persist_dir=settings.skill_index_dir)
 
-    def retrieve(self, query: str, top_k: int = 5) -> list[dict[str, object]]:
-        return super().retrieve(query, top_k=top_k)
+    def retrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+        min_score: float | None = None,
+    ) -> list[dict[str, object]]:
+        threshold = settings.skill_retrieval_min_score if min_score is None else min_score
+        return super().retrieve(query, top_k=top_k, min_score=threshold)
+
+    def retrieve_mixed(
+        self,
+        *,
+        vector_query: str,
+        bm25_query: str,
+        top_k: int = 5,
+        min_score: float | None = None,
+    ) -> list[dict[str, object]]:
+        threshold = settings.skill_retrieval_min_score if min_score is None else min_score
+        return super().retrieve_mixed(
+            vector_query=vector_query,
+            bm25_query=bm25_query,
+            top_k=top_k,
+            min_score=threshold,
+        )
 
     def _build_query_context(self, query: str) -> object:
-        return set(extract_terms(query))
+        terms = set(extract_terms(query))
+        for cjk_term, aliases in CJK_SKILL_TERM_ALIASES.items():
+            if cjk_term in query:
+                terms.update(aliases)
+        return terms
 
     def _should_skip_query(self, query: str) -> bool:
         return not bool(self._build_query_context(query))
@@ -101,6 +140,11 @@ class SkillIndexer(BaseHybridIndexStore):
             ),
             reverse=True,
         )
+
+    def _passes_relevance_threshold(self, item: dict[str, object], min_score: float) -> bool:
+        if not super()._passes_relevance_threshold(item, min_score):
+            return False
+        return bool(item.get("matched_terms"))
 
     def _resolve_skill(self, hit: NodeWithScore) -> dict[str, object]:
         metadata = getattr(hit.node, "metadata", {}) or {}
